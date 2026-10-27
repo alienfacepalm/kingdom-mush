@@ -4,12 +4,14 @@ Capkeep is an original tower defense about holding a road through a mushroom kin
 
 ## Play
 
+https://alienfacepalm.github.io/kingdom-mush/
+
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-Open the URL Vite prints. `npm test` runs the combat rules and a scripted balance check for all three marches. `npm run build` typechecks and writes `dist/`.
+Open the URL Vite prints. `pnpm test` runs the combat rules and a scripted balance check for all three marches. `pnpm build` typechecks and writes `dist/`.
 
 ## Controls
 
