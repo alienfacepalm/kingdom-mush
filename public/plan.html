@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capkeep plan — illustrated field manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --moss: #143024;
+      --moss-2: #1c4030;
+      --ink: #1b241c;
+      --parchment: #f3ead6;
+      --parchment-2: #e7dcc4;
+      --gold: #c8892e;
+      --gold-ink: #8a5a12;
+      --spore: #c4523a;
+      --sky: #7eb8cc;
+      --road: #c4a06a;
+      --leaf: #2f6b45;
+      --line: #2a4033;
+      --muted: #5c6b5e;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 8%, #24543c 0, transparent 28%),
+        radial-gradient(circle at 90% 0%, #0e241c 0, transparent 32%),
+        var(--moss);
+      color: var(--ink);
+      font-family: "Source Sans 3", "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    a { color: var(--gold-ink); }
+    .sheet {
+      width: min(1180px, calc(100% - 32px));
+      margin: 28px auto 64px;
+      background: var(--parchment);
+      border: 1px solid #cbb992;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+    header.cover {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      padding: 36px 40px 28px;
+      background:
+        linear-gradient(180deg, rgba(126, 184, 204, 0.35), transparent 42%),
+        var(--parchment);
+      border-bottom: 1px solid #d9cbaa;
+    }
+    .kicker {
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gold-ink);
+      margin: 0 0 8px;
+    }
+    h1, h2, h3 { font-family: Fraunces, Georgia, serif; font-weight: 560; letter-spacing: -0.02em; margin: 0; }
+    h1 { font-size: clamp(48px, 6vw, 76px); line-height: 0.9; }
+    h2 { font-size: 34px; margin-bottom: 8px; }
+    h3 { font-size: 22px; }
+    .lede { font-size: 20px; max-width: 38ch; margin: 14px 0 0; }
+    nav.toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      padding: 14px 40px;
+      background: #efe4cc;
+      border-bottom: 1px solid #d9cbaa;
+      font-weight: 600;
+    }
+    nav.toc a { text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    section { padding: 36px 40px; border-bottom: 1px solid #e2d5b8; }
+    section:last-child { border-bottom: 0; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+    .split.wide-art { grid-template-columns: 0.9fr 1.1fr; }
+    p { margin: 0 0 12px; }
+    .note { color: var(--muted); font-size: 14px; }
+    figure { margin: 0; }
+    figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    svg.art { width: 100%; height: auto; display: block; background: #d7eef5; border: 1px solid #b7cfc4; }
+    svg.diagram { width: 100%; height: auto; display: block; background: #f7f1e4; border: 1px solid #d9cbaa; }
+    .callouts { display: grid; gap: 10px; margin-top: 14px; }
+    .callouts div { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: start; }
+    .badge {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: var(--moss); color: #f3ead6; font-weight: 700; font-size: 13px;
+    }
+    ol.flow, ul.plain { margin: 8px 0 0; padding-left: 18px; }
+    ol.flow li, ul.plain li { margin: 0 0 6px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 12px; font-size: 14px; }
+    .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e2d5b8; vertical-align: top; }
+    th { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold-ink); }
+    footer.colophon { padding: 22px 40px 32px; color: var(--muted); font-size: 14px; }
+    @media (max-width: 860px) {
+      header.cover, .split, .split.wide-art { grid-template-columns: 1fr; }
+      header.cover, section, nav.toc, footer.colophon { padding-left: 20px; padding-right: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <article class="sheet">
+    <header class="cover">
+      <div>
+        <p class="kicker">Field manual · 27 Oct 2026</p>
+        <h1>Capkeep</h1>
+        <p class="lede">Hold the road. An original three-march tower defense, drawn from how Kingdom Rush puts a fight on screen.</p>
+        <p class="note">This page illustrates the design spec. Names, figures, and roads are original. No Ironhide art or level geometry is copied.</p>
+      </div>
+      <figure>
+        <svg class="art" viewBox="0 0 520 340" role="img" aria-label="Illustrated title screen: CAPKEEP over a mushroom field, with Start and Field notes.">
+          <rect width="520" height="220" fill="#8ec8dc"/>
+          <rect y="200" width="520" height="140" fill="#3d8a4e"/>
+          <ellipse cx="90" cy="250" rx="54" ry="16" fill="#c4a06a"/>
+          <rect x="74" y="196" width="32" height="54" fill="#243656"/>
+          <ellipse cx="90" cy="192" rx="28" ry="12" fill="#e2b15a"/>
+          <ellipse cx="400" cy="268" rx="62" ry="22" fill="#d4654a"/>
+          <rect x="392" y="214" width="16" height="54" fill="#6a4630"/>
+          <text x="260" y="118" text-anchor="middle" font-family="Fraunces, Georgia, serif" font-size="54" fill="#e7b84a" stroke="#3a2a12" stroke-width="3" paint-order="stroke">CAPKEEP</text>
+          <text x="260" y="150" text-anchor="middle" font-family="Source Sans 3, sans-serif" font-size="16" fill="#1b241c">Hold the road.</text>
+          <rect x="175" y="176" width="170" height="36" rx="3" fill="#4a301c" stroke="#e2b15a"/>
+          <text x="260" y="199" text-anchor="middle" fill="#f3ead6" font-family="Source Sans 3, sans-serif" font-size="16">Start</text>
+          <rect x="175" y="222" width="170" height="32" rx="3" fill="#4a301c" stroke="#e2b15a"/>
+          <text x="260" y="243" text-anchor="middle" fill="#f3ead6" font-family="Source Sans 3, sans-serif" font-size="14">Field notes</text>
+        </svg>
+        <figcaption>Title screen hierarchy: one wordmark, one sentence, Start, then Field notes.</figcaption>
+      </figure>
+    </header>
+
+    <nav class="toc" aria-label="Sections">
+      <a href="#screens">Screens</a>
+      <a href="#player">Player sequence</a>
+      <a href="#tick">Sim tick</a>
+      <a href="#damage">Damage flow</a>
+      <a href="#towers">Tower lines</a>
+      <a href="#hold">The hold</a>
+      <a href="#marches">Three marches</a>
+      <a href="#cuts">What stays</a>
+      <a href="#balance">Balance</a>
+      <a href="#arch">Architecture</a>
+    </nav>
+
+    <section id="screens">
+      <h2>What the screens are doing</h2>
+      <p>Two public Kingdom Rush screens set the layout. The middle of the road stays empty. Information sits on the edges, and the next decision sits on the pad or the entrance.</p>
+      <div class="split wide-art">
+        <div>
+          <div class="callouts">
+            <div><span class="badge">1</span><span>Lives, gold, and wave sit top left. Pause and 2× sit top right.</span></div>
+            <div><span class="badge">2</span><span>Build sites are fixed pads on the grass. A click opens Bow, Den, Hex, and Bomb on the pad.</span></div>
+            <div><span class="badge">3</span><span>The exit is a flagged hold. A foe that arrives costs one life.</span></div>
+            <div><span class="badge">4</span><span>The wave control sits by the entrance. One click previews. Call sends the march. Early gold is the seconds still on the clock.</span></div>
+            <div><span class="badge">5</span><span>Aid and Spore Rain live bottom left, locked until their wave.</span></div>
+            <div><span class="badge">6</span><span>The bottom bar names the selected pad, tower, or foe. Grey gold means the tower is too expensive.</span></div>
+          </div>
+        </div>
+        <figure>
+          <svg class="art" viewBox="0 0 640 420" role="img" aria-label="Battle screen diagram with numbered callouts for HUD, pads, hold, wave button, powers, and info bar.">
+            <rect width="640" height="420" fill="#2f8a48"/>
+            <rect width="640" height="36" fill="#1b2430"/>
+            <text x="16" y="24" fill="#e07a72" font-family="Source Sans 3, sans-serif" font-size="14">Lives 20</text>
+            <text x="110" y="24" fill="#e7c56a" font-family="Source Sans 3, sans-serif" font-size="14">Gold 250</text>
+            <text x="280" y="24" fill="#f4f0e6" font-family="Source Sans 3, sans-serif" font-size="14">Wave 0 / 7</text>
+            <rect x="500" y="8" width="58" height="22" rx="3" fill="#3a2a18" stroke="#e2b15a"/>
+            <text x="529" y="23" text-anchor="middle" fill="#f4f0e6" font-size="11" font-family="Source Sans 3, sans-serif">Pause</text>
+            <rect x="566" y="8" width="40" height="22" rx="3" fill="#3a2a18" stroke="#e2b15a"/>
+            <text x="586" y="23" text-anchor="middle" fill="#f4f0e6" font-size="11" font-family="Source Sans 3, sans-serif">2×</text>
+            <circle cx="22" cy="18" r="10" fill="#e7c56a"/><text x="22" y="22" text-anchor="middle" font-size="11" font-family="Source Sans 3, sans-serif">1</text>
+            <path d="M70 360 L70 250 L210 210 L360 250 L500 180 L560 120 L430 70" fill="none" stroke="#c4a06a" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M70 360 L70 250 L210 210 L360 250 L500 180 L560 120 L430 70" fill="none" stroke="#d8bc88" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+            <g font-family="Source Sans 3, sans-serif">
+              <polygon points="430,48 438,64 422,64" fill="#f4f0e6"/>
+              <polygon points="448,48 456,64 440,64" fill="#c4523a"/>
+              <text x="470" y="62" fill="#f4f0e6" font-size="11">HOLD</text>
+            </g>
+            <circle cx="620" cy="110" r="11" fill="#e7c56a"/><text x="620" y="114" text-anchor="middle" font-size="12">3</text>
+            <g>
+              <ellipse cx="250" cy="300" rx="16" ry="8" fill="#d9c7a2"/>
+              <ellipse cx="400" cy="200" rx="16" ry="8" fill="#d9c7a2"/>
+              <ellipse cx="180" cy="160" rx="16" ry="8" fill="#d9c7a2"/>
+            </g>
+            <circle cx="250" cy="268" r="11" fill="#e7c56a"/><text x="250" y="272" text-anchor="middle" font-size="12">2</text>
+            <g transform="translate(250,300)">
+              <circle cx="-36" cy="-28" r="18" fill="#3d8a4e" stroke="#f4f0e6"/>
+              <text x="-36" y="-24" text-anchor="middle" fill="#f4f0e6" font-size="9">Bow</text>
+              <circle cx="-8" cy="-46" r="18" fill="#3a5f9a" stroke="#f4f0e6"/>
+              <text x="-8" y="-42" text-anchor="middle" fill="#f4f0e6" font-size="9">Den</text>
+              <circle cx="28" cy="-40" r="18" fill="#6a4a9a" stroke="#f4f0e6"/>
+              <text x="28" y="-36" text-anchor="middle" fill="#f4f0e6" font-size="9">Hex</text>
+              <circle cx="40" cy="-8" r="18" fill="#c4652e" stroke="#f4f0e6"/>
+              <text x="40" y="-4" text-anchor="middle" fill="#f4f0e6" font-size="9">Bomb</text>
+            </g>
+            <circle cx="78" cy="330" r="18" fill="#1c2430" stroke="#e0b15a" stroke-width="3"/>
+            <text x="78" y="334" text-anchor="middle" fill="#f4f0e6" font-size="9">Wave</text>
+            <rect x="150" y="300" width="150" height="62" fill="#1c2430" stroke="#e0b15a"/>
+            <text x="160" y="320" fill="#f4f0e6" font-size="11">Sproutling ×4</text>
+            <text x="160" y="336" fill="#c9d4c4" font-size="11">Call the first wave</text>
+            <rect x="176" y="342" width="96" height="16" fill="#4a301c" stroke="#e2b15a"/>
+            <text x="224" y="354" text-anchor="middle" fill="#f4f0e6" font-size="11">Call</text>
+            <circle cx="168" cy="292" r="11" fill="#e7c56a"/><text x="168" y="296" text-anchor="middle" font-size="12">4</text>
+            <rect x="16" y="348" width="70" height="36" fill="#4a301c" stroke="#e2b15a"/>
+            <text x="51" y="370" text-anchor="middle" fill="#f4f0e6" font-size="11">Aid</text>
+            <rect x="90" y="356" width="70" height="36" fill="#4a301c" stroke="#e2b15a"/>
+            <text x="125" y="378" text-anchor="middle" fill="#f4f0e6" font-size="11">Rain</text>
+            <circle cx="28" cy="340" r="11" fill="#e7c56a"/><text x="28" y="344" text-anchor="middle" font-size="12">5</text>
+            <rect y="392" width="640" height="28" fill="#1b2430"/>
+            <text x="16" y="410" fill="#e7c56a" font-size="12" font-family="Source Sans 3, sans-serif">Empty pad — choose a tower. Grey gold means you cannot afford it yet.</text>
+            <circle cx="12" cy="404" r="8" fill="#e7c56a"/><text x="12" y="407" text-anchor="middle" font-size="9">6</text>
+          </svg>
+          <figcaption>Battle screen. The radial build menu stays on the pad. Call is a labeled button, not a hidden second tap on the skull.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="player">
+      <h2>Player sequence</h2>
+      <p>One march is a loop of spending, calling, and answering what the road sends. The clock between waves is money if you call early, and a breather if you wait.</p>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 460" role="img" aria-label="Sequence diagram of a player from map briefing through build, wave call, fight, and stars.">
+          <rect width="1100" height="460" fill="#f7f1e4"/>
+          <g font-family="Source Sans 3, sans-serif" font-size="13" fill="#1b241c">
+            <text x="70" y="28" text-anchor="middle" font-weight="700">Player</text>
+            <text x="300" y="28" text-anchor="middle" font-weight="700">Map</text>
+            <text x="530" y="28" text-anchor="middle" font-weight="700">Battle</text>
+            <text x="790" y="28" text-anchor="middle" font-weight="700">Simulation</text>
+            <text x="1010" y="28" text-anchor="middle" font-weight="700">Save</text>
+          </g>
+          <g stroke="#2a4033" stroke-width="1.5" stroke-dasharray="3 4">
+            <line x1="70" y1="40" x2="70" y2="440"/>
+            <line x1="300" y1="40" x2="300" y2="440"/>
+            <line x1="530" y1="40" x2="530" y2="440"/>
+            <line x1="790" y1="40" x2="790" y2="440"/>
+            <line x1="1010" y1="40" x2="1010" y2="440"/>
+          </g>
+          <g font-family="Source Sans 3, sans-serif" font-size="13" fill="#1b241c">
+            <path d="M70 70 H300" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="120" y="64">Open a march</text>
+            <path d="M300 110 H70" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="120" y="104">Briefing: lives, gold, waves</text>
+            <path d="M70 150 H530" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="160" y="144">To battle</text>
+            <path d="M70 200 H530" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="140" y="194">Click pad → Bow / Den / Hex / Bomb</text>
+            <path d="M530 230 H790" stroke="#c8892e" marker-end="url(#arrowGold)"/>
+            <text x="560" y="224" fill="#8a5a12">build(slot, family)</text>
+            <path d="M70 280 H530" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="140" y="274">Wave, then Call</text>
+            <path d="M530 310 H790" stroke="#c8892e" marker-end="url(#arrowGold)"/>
+            <text x="560" y="304" fill="#8a5a12">callWave() → early gold</text>
+            <path d="M790 360 H530" stroke="#2f6b45" marker-end="url(#arrowLeaf)"/>
+            <text x="600" y="354" fill="#1e4a30">kills, leaks, notices</text>
+            <path d="M530 400 H1010" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="620" y="394">Clear: stars 3 / 2 / 1</text>
+            <path d="M1010 430 H300" stroke="#2a4033" marker-end="url(#arrow)"/>
+            <text x="560" y="424">Stars unlock the next march and buy studies</text>
+          </g>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#2a4033"/>
+            </marker>
+            <marker id="arrowGold" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#c8892e"/>
+            </marker>
+            <marker id="arrowLeaf" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#2f6b45"/>
+            </marker>
+          </defs>
+        </svg>
+        <figcaption>Gold arrows are commands into the rules. The green arrow is what the battle draws back. Stars stay in the browser.</figcaption>
+      </figure>
+    </section>
+
+    <section id="tick">
+      <h2>One simulation tick</h2>
+      <p>The fight steps at 30 Hz. Drawing never decides a hit. Each tick runs in this order so blockers, movement, and shots agree.</p>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 220" role="img" aria-label="Left to right flow of one simulation tick from cooldowns through victory check.">
+          <rect width="1100" height="220" fill="#f7f1e4"/>
+          <g font-family="Source Sans 3, sans-serif" font-size="12" fill="#1b241c" text-anchor="middle">
+            <g>
+              <rect x="16" y="36" width="100" height="54" rx="6" fill="#1c4030"/>
+              <text x="66" y="60" fill="#f3ead6">Cooldowns</text>
+              <text x="66" y="76" fill="#d7e6da">hero, powers</text>
+            </g>
+            <g>
+              <rect x="140" y="36" width="100" height="54" rx="6" fill="#1c4030"/>
+              <text x="190" y="60" fill="#f3ead6">Spawns</text>
+              <text x="190" y="76" fill="#d7e6da">queue, adds</text>
+            </g>
+            <g>
+              <rect x="264" y="36" width="110" height="54" rx="6" fill="#1c4030"/>
+              <text x="319" y="60" fill="#f3ead6">Move foes</text>
+              <text x="319" y="76" fill="#d7e6da">leak at the end</text>
+            </g>
+            <g>
+              <rect x="398" y="36" width="120" height="54" rx="6" fill="#c8892e"/>
+              <text x="458" y="60">Assign holds</text>
+              <text x="458" y="76">front foe first</text>
+            </g>
+            <g>
+              <rect x="542" y="36" width="110" height="54" rx="6" fill="#1c4030"/>
+              <text x="597" y="60" fill="#f3ead6">Actors</text>
+              <text x="597" y="76" fill="#d7e6da">soldiers, hero</text>
+            </g>
+            <g>
+              <rect x="676" y="36" width="110" height="54" rx="6" fill="#c4523a"/>
+              <text x="731" y="60" fill="#f3ead6">Strikes</text>
+              <text x="731" y="76" fill="#f3ead6">melee, towers</text>
+            </g>
+            <g>
+              <rect x="810" y="36" width="110" height="54" rx="6" fill="#1c4030"/>
+              <text x="865" y="60" fill="#f3ead6">Heal</text>
+              <text x="865" y="76" fill="#d7e6da">regen, auras</text>
+            </g>
+            <g>
+              <rect x="944" y="36" width="136" height="54" rx="6" fill="#1c4030"/>
+              <text x="1012" y="60" fill="#f3ead6">Clock</text>
+              <text x="1012" y="76" fill="#d7e6da">next wave / win</text>
+            </g>
+            <g stroke="#2a4033" stroke-width="2" fill="none">
+              <path d="M116 63 H140 M240 63 H264 M374 63 H398 M518 63 H542 M652 63 H676 M786 63 H810 M920 63 H944"/>
+            </g>
+          </g>
+          <text x="24" y="140" font-family="Source Sans 3, sans-serif" font-size="15" fill="#1b241c">Between waves the clock counts down. Calling early pays floor(seconds left × early gold) and shaves that many seconds off power cooldowns. Waiting out the clock pays nothing, because the timer is already at zero.</text>
+          <text x="24" y="178" font-family="Source Sans 3, sans-serif" font-size="15" fill="#1b241c">Boss adds are capped. A fight cannot spawn forever. Poison ticks with the hazards, before the hold is refreshed, so a dying foe drops its soldier.</text>
+        </svg>
+        <figcaption>Gold is the hold step. Red is the damage step. Everything else is bookkeeping around those two.</figcaption>
+      </figure>
+    </section>
+
+    <section id="damage">
+      <h2>Damage flow</h2>
+      <p>A hit is a roll, then a protection, then a floor. Armor, magic resistance, and true damage are different doors into the same formula: <strong>floor(amount × (1 − protection))</strong>.</p>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 340" role="img" aria-label="Flowchart from a tower shot through damage type to the final floored hit.">
+          <rect width="1100" height="340" fill="#f7f1e4"/>
+          <g font-family="Source Sans 3, sans-serif" font-size="14" text-anchor="middle">
+            <rect x="440" y="16" width="220" height="40" rx="20" fill="#1c4030"/>
+            <text x="550" y="42" fill="#f3ead6">Roll min–max damage</text>
+            <path d="M550 56 V86" stroke="#2a4033" stroke-width="2" marker-end="url(#arrow)"/>
+            <rect x="430" y="90" width="240" height="40" rx="6" fill="#efe4cc" stroke="#2a4033"/>
+            <text x="550" y="115">Which damage?</text>
+            <g>
+              <path d="M470 130 L140 180" stroke="#2a4033" fill="none"/>
+              <path d="M510 130 L360 180" stroke="#2a4033" fill="none"/>
+              <path d="M550 130 V180" stroke="#2a4033" fill="none"/>
+              <path d="M590 130 L760 180" stroke="#2a4033" fill="none"/>
+              <path d="M630 130 L980 180" stroke="#2a4033" fill="none"/>
+            </g>
+            <g>
+              <rect x="40" y="184" width="200" height="64" rx="6" fill="#d7e6da" stroke="#2f6b45"/>
+              <text x="140" y="210" font-weight="700">Physical</text>
+              <text x="140" y="230">protection = armor</text>
+              <rect x="260" y="184" width="200" height="64" rx="6" fill="#e4d7f2" stroke="#6a4a9a"/>
+              <text x="360" y="210" font-weight="700">Magic</text>
+              <text x="360" y="230">protection = resist</text>
+              <rect x="480" y="184" width="220" height="64" rx="6" fill="#f3d7c8" stroke="#c4652e"/>
+              <text x="590" y="210" font-weight="700">Explosive / electric</text>
+              <text x="590" y="230">protection = armor / 2</text>
+              <rect x="720" y="184" width="160" height="64" rx="6" fill="#f7e7a8" stroke="#c8892e"/>
+              <text x="800" y="210" font-weight="700">True</text>
+              <text x="800" y="230">protection = 0</text>
+              <rect x="900" y="184" width="170" height="64" rx="6" fill="#d9efc8" stroke="#3d8a4e"/>
+              <text x="985" y="210" font-weight="700">Poison</text>
+              <text x="985" y="230">ignores both</text>
+            </g>
+            <path d="M550 270 V292" stroke="#2a4033" stroke-width="2"/>
+            <rect x="330" y="292" width="440" height="36" rx="6" fill="#1b241c"/>
+            <text x="550" y="315" fill="#f3ead6">floor(amount × (1 − protection))</text>
+          </g>
+        </svg>
+        <figcaption>Worked checks from the public damage page: 14 physical into 80% armor is 2. Magic 60 into 85% resist is 9. Explosive 50 into 95% armor is 26. Poison and true ignore protection.</figcaption>
+      </figure>
+      <div class="legend">
+        <span><i class="swatch" style="background:#3d8a4e"></i>Bow hits air</span>
+        <span><i class="swatch" style="background:#6a4a9a"></i>Hex misses air, ignores armor</span>
+        <span><i class="swatch" style="background:#c4652e"></i>Bomb aims at the ground; the blast still clips fliers</span>
+        <span><i class="swatch" style="background:#c4a06a"></i>Toughest shell is 62% armor, so a physical hit still lands</span>
+      </div>
+    </section>
+
+    <section id="towers">
+      <h2>Four lines, then a branch</h2>
+      <p>Every pad grows the same way. Two upgrades, then a specialty that includes its trick. Dewcap stops at tier 3 so the first march teaches upgrading before the choice. There is no second shop of paid abilities on top of the branch.</p>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 250" role="img" aria-label="Four tower families, each with three tiers and two tier-four branches.">
+          <rect width="1100" height="520" fill="#f7f1e4"/>
+          <g font-family="Source Sans 3, sans-serif" font-size="13" fill="#1b241c">
+            <g transform="translate(20,20)">
+              <text x="120" y="18" text-anchor="middle" font-weight="700">Bow · physical, hits air</text>
+              <rect x="40" y="32" width="160" height="28" fill="#3d8a4e"/><text x="120" y="51" text-anchor="middle" fill="#f3ead6">Sporebow 70g</text>
+              <rect x="40" y="72" width="160" height="28" fill="#2f6b45"/><text x="120" y="91" text-anchor="middle" fill="#f3ead6">Longcap</text>
+              <rect x="40" y="112" width="160" height="28" fill="#245636"/><text x="120" y="131" text-anchor="middle" fill="#f3ead6">Sharpcap</text>
+              <path d="M70 140 L40 168 M170 140 L200 168" stroke="#2a4033" fill="none"/>
+              <rect x="0" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="55" y="186" text-anchor="middle">Toxcap Nest</text><text x="55" y="202" text-anchor="middle" font-size="11">poison</text>
+              <rect x="130" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="185" y="186" text-anchor="middle">Musket Cap</text><text x="185" y="202" text-anchor="middle" font-size="11">splash, still air</text>
+            </g>
+            <g transform="translate(290,20)">
+              <text x="120" y="18" text-anchor="middle" font-weight="700">Den · blocks the road</text>
+              <rect x="40" y="32" width="160" height="28" fill="#3a5f9a"/><text x="120" y="51" text-anchor="middle" fill="#f3ead6">Cap Barracks 70g</text>
+              <rect x="40" y="72" width="160" height="28" fill="#2d4c7c"/><text x="120" y="91" text-anchor="middle" fill="#f3ead6">Footcaps</text>
+              <rect x="40" y="112" width="160" height="28" fill="#243e66"/><text x="120" y="131" text-anchor="middle" fill="#f3ead6">Knightcaps</text>
+              <path d="M70 140 L40 168 M170 140 L200 168" stroke="#2a4033" fill="none"/>
+              <rect x="0" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="55" y="186" text-anchor="middle">Paladin Ring</text><text x="55" y="202" text-anchor="middle" font-size="11">mend aura</text>
+              <rect x="130" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="185" y="186" text-anchor="middle">Axe Lodge</text><text x="185" y="202" text-anchor="middle" font-size="11">throws, hits air</text>
+            </g>
+            <g transform="translate(560,20)">
+              <text x="120" y="18" text-anchor="middle" font-weight="700">Hex · magic, no air aim</text>
+              <rect x="40" y="32" width="160" height="28" fill="#6a4a9a"/><text x="120" y="51" text-anchor="middle" fill="#f3ead6">Gloomspire 100g</text>
+              <rect x="40" y="72" width="160" height="28" fill="#563c7e"/><text x="120" y="91" text-anchor="middle" fill="#f3ead6">Adept Cap</text>
+              <rect x="40" y="112" width="160" height="28" fill="#432f64"/><text x="120" y="131" text-anchor="middle" fill="#f3ead6">Witchcap</text>
+              <path d="M70 140 L40 168 M170 140 L200 168" stroke="#2a4033" fill="none"/>
+              <rect x="0" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="55" y="186" text-anchor="middle">Warp Witch</text><text x="55" y="202" text-anchor="middle" font-size="11">teleport back</text>
+              <rect x="130" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="185" y="186" text-anchor="middle">Mycomancer</text><text x="185" y="202" text-anchor="middle" font-size="11">shred + blocker</text>
+            </g>
+            <g transform="translate(830,20)">
+              <text x="120" y="18" text-anchor="middle" font-weight="700">Bomb · ground splash</text>
+              <rect x="40" y="32" width="160" height="28" fill="#c4652e"/><text x="120" y="51" text-anchor="middle" fill="#f3ead6">Puffmortar 125g</text>
+              <rect x="40" y="72" width="160" height="28" fill="#a35224"/><text x="120" y="91" text-anchor="middle" fill="#f3ead6">Boomcap</text>
+              <rect x="40" y="112" width="160" height="28" fill="#84421c"/><text x="120" y="131" text-anchor="middle" fill="#f3ead6">Howlcap</text>
+              <path d="M70 140 L40 168 M170 140 L200 168" stroke="#2a4033" fill="none"/>
+              <rect x="0" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="55" y="186" text-anchor="middle">Cluster Puff</text><text x="55" y="202" text-anchor="middle" font-size="11">wider blast</text>
+              <rect x="130" y="168" width="110" height="44" fill="#efe4cc" stroke="#2a4033"/><text x="185" y="186" text-anchor="middle">Sparkcap</text><text x="185" y="202" text-anchor="middle" font-size="11">chain, hits air</text>
+            </g>
+          </g>
+        </svg>
+        <figcaption>Each line upgrades twice. The fourth purchase is one of the two specialties, and the specialty includes its trick.</figcaption>
+      </figure>
+      <div class="split">
+        <div>
+          <h3>Sell and rally</h3>
+          <p>Before wave 1, selling returns the full cost. After that, 60%. Rally points sit on the road and within reach of the barracks. Upgrading a barracks refreshes the squad.</p>
+          <h3>Studies, one star each</h3>
+          <p>Eagle Caps (range), Thick Caps (barracks health), Arcane Study (mage damage), Wide Puffs (blast radius), Blitz Spores (early gold), Veterans (reinforcements). Reset refunds the stars.</p>
+        </div>
+        <div>
+          <h3>Warden Puff</h3>
+          <p>Absent on Dewcap. From Forkfen, right-click sends the warden. They hold one ground foe once they arrive, and H fires a short true-damage burst. Aid is two soldiers for a short stand. Spore Rain is three true hits in a circle.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="hold">
+      <h2>How a barracks holds the road</h2>
+      <div class="split">
+        <figure>
+          <svg class="art" viewBox="0 0 520 280" role="img" aria-label="Three soldiers on a road. The front soldier holds a beetle. Two soldiers strike the same foe. A gnat flies over them.">
+            <rect width="520" height="280" fill="#3d8a4e"/>
+            <path d="M20 170 H500" stroke="#c4a06a" stroke-width="46" stroke-linecap="round"/>
+            <path d="M20 170 H500" stroke="#d8bc88" stroke-width="14" stroke-linecap="round"/>
+            <g>
+              <circle cx="180" cy="170" r="14" fill="#3a5f9a" stroke="#f4f0e6"/>
+              <circle cx="210" cy="158" r="14" fill="#3a5f9a" stroke="#f4f0e6"/>
+              <circle cx="210" cy="186" r="14" fill="#3a5f9a" stroke="#f4f0e6"/>
+              <text x="180" y="128" text-anchor="middle" font-size="12" font-family="Source Sans 3, sans-serif" fill="#f4f0e6">holder</text>
+            </g>
+            <g>
+              <ellipse cx="250" cy="170" rx="22" ry="16" fill="#6a4630"/>
+              <ellipse cx="268" cy="158" rx="10" ry="7" fill="#c4523a"/>
+              <text x="250" y="210" text-anchor="middle" font-size="12" font-family="Source Sans 3, sans-serif" fill="#1b241c">ground foe</text>
+            </g>
+            <g>
+              <ellipse cx="360" cy="70" rx="16" ry="10" fill="#d7e6da" stroke="#1b241c"/>
+              <text x="360" y="48" text-anchor="middle" font-size="12" font-family="Source Sans 3, sans-serif" fill="#f4f0e6">flier, not held</text>
+            </g>
+            <path d="M224 158 Q280 120 344 74" fill="none" stroke="#e7c56a" stroke-dasharray="4 3"/>
+            <text x="300" y="112" font-size="11" font-family="Source Sans 3, sans-serif" fill="#f4f0e6">axe / musket / spark</text>
+          </svg>
+          <figcaption>One soldier holds one ground foe. The other two can still hit that foe. Only the holder takes the bites. Fliers walk the road in the air and are not blocked.</figcaption>
+        </figure>
+        <div>
+          <h3>Who gets the front</h3>
+          <ol class="flow">
+            <li>Foes are ordered by how far they have walked. The one closest to the hold is claimed first.</li>
+            <li>A soldier already in range takes that foe. Extras pile on.</li>
+            <li>The foe hits only its holder.</li>
+            <li>When the holder dies, the next free soldier picks the foe up.</li>
+            <li>Flying foes skip the hold and are answered by archers, thrown axes, musket splash, or chain lightning.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="marches">
+      <h2>Three marches</h2>
+      <p>Southport is the template for the first road: a short path, about 250 gold, 20 lives, sproutlings, then shells, reinforcements partway through, and a true-damage rain near the end. The later roads teach a split, then a boss.</p>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 300" role="img" aria-label="A road of three marches: Dewcap teaches, Forkfen splits, Blackcap ends on the Rot King.">
+          <rect width="1100" height="300" fill="#1c4030"/>
+          <path d="M80 230 C 220 230, 260 120, 400 120 S 620 230, 760 160 S 980 80, 1020 90" fill="none" stroke="#c4a06a" stroke-width="18" stroke-linecap="round"/>
+          <g font-family="Source Sans 3, sans-serif" fill="#f3ead6">
+            <circle cx="120" cy="220" r="28" fill="#e2b15a" stroke="#1b241c" stroke-width="3"/>
+            <text x="120" y="226" text-anchor="middle" fill="#1b241c" font-weight="700">1</text>
+            <text x="120" y="268" text-anchor="middle" font-size="16">Dewcap Road</text>
+            <text x="200" y="40" font-size="14">250 gold · 20 lives · 7 waves · tier 3 · no hero</text>
+            <text x="200" y="62" font-size="14">Pads, barracks, archers. Beetles need a gloomspire.</text>
+            <text x="200" y="84" font-size="14">Aid from wave 3. Rain from wave 6.</text>
+            <circle cx="520" cy="150" r="28" fill="#8aa090" stroke="#1b241c" stroke-width="3"/>
+            <text x="520" y="156" text-anchor="middle" fill="#1b241c" font-weight="700">2</text>
+            <text x="520" y="210" text-anchor="middle" font-size="16">Forkfen</text>
+            <text x="600" y="130" font-size="14">360 gold · hero · tier 4 · two paths</text>
+            <text x="600" y="152" font-size="14">Runners, shades, gnats. Warden Puff arrives.</text>
+            <circle cx="980" cy="96" r="28" fill="#8aa090" stroke="#1b241c" stroke-width="3"/>
+            <text x="980" y="102" text-anchor="middle" fill="#1b241c" font-weight="700">3</text>
+            <text x="980" y="148" text-anchor="middle" font-size="16">Blackcap Keep</text>
+            <text x="760" y="250" font-size="14">480 gold · Rot King · adds capped</text>
+          </g>
+        </svg>
+        <figcaption>March 2 and 3 stay locked until the road before them is cleared. Stars on a clear: 3 if 16 or more lives remain, 2 if 8 or more, otherwise 1.</figcaption>
+      </figure>
+    </section>
+
+    <section id="cuts">
+      <h2>What the review kept</h2>
+      <div class="split">
+        <div>
+          <h3>Stays, because this is the game</h3>
+          <ul class="plain">
+            <li>Fixed pads and four tower lines</li>
+            <li>A tier-4 branch whose trick is included</li>
+            <li>Blocking, armor versus magic, fliers</li>
+            <li>One hero, two powers, early wave calls</li>
+            <li>Stars that buy six studies</li>
+            <li>A labeled Call button and a 2× speed</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Cut, so a playable game could ship</h3>
+          <ul class="plain">
+            <li>A full campaign and heroic or iron modes</li>
+            <li>A hero roster and a gem shop</li>
+            <li>A separate shop of three paid abilities per tower</li>
+            <li>Immune armor. The shell tops out at 62%</li>
+          </ul>
+        </div>
+      </div>
+      <p>The engineering cut is the same idea: the simulation does not import the renderer. Balance tests drive it with a fixed seed and a scripted commander that is not shipped to the player. Boss adds are capped so a fight cannot run forever.</p>
+    </section>
+
+    <section id="balance">
+      <h2>Balance the plan promises</h2>
+      <table>
+        <thead>
+          <tr><th>March</th><th>Competent line</th><th>The lesson if it fails</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Dewcap, mixed towers</td><td>16 or more lives</td><td>The first road is winnable once magic answers the shells.</td></tr>
+          <tr><td>Dewcap, no gloomspire</td><td>Fewer lives than the mixed line</td><td>Armor is a real door. Bows alone leak.</td></tr>
+          <tr><td>Forkfen</td><td>14 or more across damage rolls</td><td>The fork and the fliers have an answer.</td></tr>
+          <tr><td>Blackcap</td><td>8 or more, a two-star win</td><td>The Rot King is a hold, not a perfect clear.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="arch">
+      <h2>Where the rules live</h2>
+      <figure>
+        <svg class="diagram" viewBox="0 0 1100 200" role="img" aria-label="Three boxes: Phaser scenes send commands to the simulation, which reads content. Tests drive the simulation without Phaser.">
+          <rect width="1100" height="200" fill="#f7f1e4"/>
+          <g font-family="Source Sans 3, sans-serif" text-anchor="middle">
+            <rect x="40" y="40" width="280" height="100" rx="8" fill="#7eb8cc"/>
+            <text x="180" y="80" font-weight="700">Phaser scenes</text>
+            <text x="180" y="104">menu, map, battle</text>
+            <text x="180" y="124" font-size="13">clicks and keys only</text>
+            <rect x="410" y="40" width="280" height="100" rx="8" fill="#e2b15a"/>
+            <text x="550" y="80" font-weight="700">src/sim</text>
+            <text x="550" y="104">30 Hz rules</text>
+            <text x="550" y="124" font-size="13">damage, path, blocking</text>
+            <rect x="780" y="40" width="280" height="100" rx="8" fill="#d7e6da" stroke="#2a4033"/>
+            <text x="920" y="80" font-weight="700">src/content</text>
+            <text x="920" y="104">towers, foes, marches</text>
+            <text x="920" y="124" font-size="13">star save in the browser</text>
+            <path d="M320 90 H410" stroke="#2a4033" stroke-width="2" marker-end="url(#arrow)"/>
+            <path d="M690 90 H780" stroke="#2a4033" stroke-width="2" marker-end="url(#arrow)"/>
+          </g>
+          <text x="40" y="175" font-family="Source Sans 3, sans-serif" font-size="14">tests/strategy.ts plays a competent opener and is not in the client. A balance change has to keep that line alive.</text>
+        </svg>
+      </figure>
+    </section>
+
+    <footer class="colophon">
+      Illustrated from <code>docs/superpowers/specs/2026-10-27-capkeep-design.md</code>. Playable build: <a href="https://alienfacepalm.github.io/kingdom-mush/">alienfacepalm.github.io/kingdom-mush</a>.
+    </footer>
+  </article>
+</body>
+</html>
