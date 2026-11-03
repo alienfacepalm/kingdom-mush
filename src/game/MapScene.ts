@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { META_UPGRADES } from "../content/catalog";
 import { LEVELS, isUnlocked } from "../content/levels";
-import { buyUpgrade, commitSave, loadSave, resetUpgrades, starsAvailable } from "../content/save";
+import { buyUpgrade, commitSave, loadSave, resetUpgrades, setAutoWaves, starsAvailable } from "../content/save";
+import { Sim } from "../sim/Sim";
 import { CREAM, DISPLAY_FONT, GOLD, INK, INK_SOFT, UI_FONT, art, hasFrame, paintTextures, parchment, plank, woodButton } from "./draw";
 import { sfx } from "./sfx";
 
@@ -96,27 +97,45 @@ export class MapScene extends Phaser.Scene {
     const level = LEVELS.find((entry) => entry.id === levelId);
     if (!level || this.children.getByName("brief")) return;
     sfx.ui();
+    let auto = loadSave().autoWaves;
     const panel = this.add.container(640, 360).setName("brief").setDepth(20);
     const dim = this.add.rectangle(0, 0, 1280, 720, 0x100804, 0.45).setInteractive();
-    const bg = parchment(this, 0, 0, 660, 340);
-    const title = this.add.text(0, -128, level.name, { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
-    const body = this.add.text(-280, -80, level.briefing, {
+    const bg = parchment(this, 0, 0, 660, 380);
+    const title = this.add.text(0, -148, level.name, { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
+    const body = this.add.text(-280, -100, level.briefing, {
       fontFamily: UI_FONT,
       fontSize: "18px",
       color: INK_SOFT,
       wordWrap: { width: 560 },
     });
-    const meta = this.add.text(-280, 44, `Lives 20   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
+    const meta = this.add.text(-280, 24, `Lives 20   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
       fontFamily: UI_FONT,
       fontSize: "16px",
       color: INK,
     });
-    const go = woodButton(this, 120, 116, 190, 48, "To battle", () => {
+    const modeHint = this.add.text(0, 58, "", { fontFamily: UI_FONT, fontSize: "15px", color: INK_SOFT }).setOrigin(0.5);
+    const paintMode = () => {
+      modeHint.setText(
+        auto
+          ? `Auto: ${Sim.PREP_SECONDS}s prep, then waves call themselves. Pause freezes the clock.`
+          : "Manual: call each wave yourself when you are ready.",
+      );
+    };
+    paintMode();
+    const mode = woodButton(this, -190, 108, 180, 44, auto ? "Auto on" : "Manual", () => {
+      auto = !auto;
+      commitSave(setAutoWaves(loadSave(), auto));
+      const label = mode.list[1];
+      if (label instanceof Phaser.GameObjects.Text) label.setText(auto ? "Auto on" : "Manual");
+      paintMode();
+      sfx.ui();
+    }, 21);
+    const go = woodButton(this, 20, 108, 180, 48, "To battle", () => {
       sfx.unlock();
       this.scene.start("battle", { levelId });
     }, 21);
-    const back = woodButton(this, -110, 116, 150, 48, "Back", () => panel.destroy(true), 21);
-    panel.add([dim, bg, title, body, meta, go, back]);
+    const back = woodButton(this, 200, 108, 120, 44, "Back", () => panel.destroy(true), 21);
+    panel.add([dim, bg, title, body, meta, modeHint, mode, go, back]);
     panel.setScale(0.85);
     this.tweens.add({ targets: panel, scale: 1, duration: 220, ease: "Back.easeOut" });
   }

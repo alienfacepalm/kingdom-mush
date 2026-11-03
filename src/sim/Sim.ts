@@ -145,8 +145,13 @@ export class Sim {
   waveStarted = 0;
   nextWaveIn = 0;
   countingDown = false;
+  /** When true, prep and between-wave clocks call the next wave at zero. */
+  autoWaves = true;
   reinCd = 0;
   rainCd = 0;
+
+  /** Seconds of build time before wave 1 when auto marches are on. */
+  static readonly PREP_SECONDS = 20;
 
   private readonly rng: () => number;
   private readonly enemyDefs: Record<string, EnemyDef>;
@@ -197,6 +202,29 @@ export class Sim {
     if (this.waveStarted >= this.level.waves.length) return false;
     if (this.waveStarted === 0) return true;
     return this.countingDown;
+  }
+
+  setAutoWaves(on: boolean): void {
+    this.autoWaves = on;
+    if (!on) this.disarmAutoClock();
+  }
+
+  /** Begin the pre-wave-1 build clock (used when auto marches are on). Call from battle start only. */
+  armPrep(seconds = Sim.PREP_SECONDS): void {
+    if (this.phase !== "prep" || this.waveStarted !== 0) return;
+    this.countingDown = true;
+    this.nextWaveIn = Math.max(1, seconds);
+  }
+
+  /** Drop an armed prep/gap clock into a ready-to-call idle (no bonus). */
+  private disarmAutoClock(): void {
+    if (!this.countingDown) return;
+    if (this.waveStarted === 0) {
+      this.countingDown = false;
+      this.nextWaveIn = 0;
+      return;
+    }
+    this.nextWaveIn = 0;
   }
 
   earlyBonus(): number {
@@ -318,7 +346,8 @@ export class Sim {
   callWave(): number {
     if (!this.canCall()) return 0;
     let bonus = 0;
-    if (this.countingDown) {
+    // Prep clock is build time, not a skipped between-wave gap — no early gold or CD shave.
+    if (this.countingDown && this.waveStarted > 0) {
       bonus = this.earlyBonus();
       const shaved = Math.max(0, this.nextWaveIn);
       this.gold += bonus;
@@ -328,13 +357,15 @@ export class Sim {
     this.countingDown = false;
     this.nextWaveIn = 0;
     const wave = this.level.waves[this.waveStarted];
-    let t = this.time;
+    // Each group starts at call time so dual-path packs leave together.
     for (const group of wave.spawns) {
+      let t = this.time;
       for (let i = 0; i < group.count; i++) {
         this.queue.push({ time: t, enemyId: group.enemyId, pathId: group.pathId, dist: 0 });
         t += group.interval;
       }
     }
+    this.queue.sort((a, b) => a.time - b.time || a.pathId.localeCompare(b.pathId));
     this.waveStarted += 1;
     this.phase = "combat";
     this.push({ type: "wave", index: this.waveStarted });
@@ -427,6 +458,7 @@ export class Sim {
     this.time += dt;
     this.reinCd = Math.max(0, this.reinCd - dt);
     this.rainCd = Math.max(0, this.rainCd - dt);
+    if (this.hero) this.hero.abilityCd = Math.max(0, this.hero.abilityCd - dt);
     this.tickHeroDown(dt);
     this.tickRespawns(dt);
     this.tickSpawns();
@@ -450,7 +482,6 @@ export class Sim {
   private tickHeroDown(dt: number): void {
     if (!this.hero || this.hero.alive) return;
     this.hero.down -= dt;
-    this.hero.abilityCd = Math.max(0, this.hero.abilityCd - dt);
     if (this.hero.down <= 0) {
       this.hero.alive = true;
       this.hero.hp = this.hero.maxHp;
@@ -624,6 +655,17 @@ export class Sim {
       if (!actor.alive) continue;
       actor.cooldown -= dt;
       if (actor.cooldown > 0) continue;
+      // Axe Lodge: prefer a flier in throw range even while locked in melee.
+      if (actor.throwRange > 0) {
+        const flyer = this.nearestFlyer(actor.x, actor.y, actor.throwRange);
+        if (flyer) {
+          actor.cooldown = actor.interval;
+          const amount = rollInt(actor.dmgMin + actor.dmgBonus, actor.dmgMax + actor.dmgBonus, this.rng);
+          this.hurt(flyer, amount, "physical");
+          this.push({ type: "fire", x1: actor.x, y1: actor.y, x2: flyer.x, y2: flyer.y, kind: "physical" });
+          continue;
+        }
+      }
       const melee = actor.blockId ? this.enemyById(actor.blockId) : undefined;
       const pile =
         melee && melee.alive && dist(actor, melee) <= HOLD_RANGE + 6
@@ -635,13 +677,6 @@ export class Sim {
         this.hurt(pile, amount, "physical");
         continue;
       }
-      if (actor.throwRange <= 0) continue;
-      const thrown = this.nearestEnemy(actor.x, actor.y, actor.throwRange, true);
-      if (!thrown) continue;
-      actor.cooldown = actor.interval;
-      const amount = rollInt(actor.dmgMin + actor.dmgBonus, actor.dmgMax + actor.dmgBonus, this.rng);
-      this.hurt(thrown, amount, "physical");
-      this.push({ type: "fire", x1: actor.x, y1: actor.y, x2: thrown.x, y2: thrown.y, kind: "physical" });
     }
   }
 
@@ -662,7 +697,7 @@ export class Sim {
       if (stats.chain > 0) {
         this.fireChain(target, stats);
       } else if (stats.splash > 0) {
-        const center = stats.max;
+        const center = rollInt(stats.min, stats.max, this.rng);
         this.hurt(target, center, stats.damageType);
         for (const enemy of this.enemies) {
           if (!enemy.alive || enemy.id === target.id) continue;
@@ -746,11 +781,28 @@ export class Sim {
   }
 
   private tickCountdown(dt: number): void {
-    if (this.phase !== "combat" || this.queue.length > 0) return;
+    if (this.queue.length > 0) return;
+    if (this.phase === "prep") {
+      if (!this.countingDown) return;
+      this.nextWaveIn -= dt;
+      if (this.nextWaveIn <= 0) {
+        if (this.autoWaves) this.callWave();
+        else {
+          this.countingDown = false;
+          this.nextWaveIn = 0;
+        }
+      }
+      return;
+    }
+    if (this.phase !== "combat") return;
     if (!this.countingDown && this.waveStarted < this.level.waves.length) {
       const gap = this.level.waves[this.waveStarted - 1]?.gap ?? 0;
       if (gap <= 0) {
-        this.callWave();
+        if (this.autoWaves) this.callWave();
+        else {
+          this.countingDown = true;
+          this.nextWaveIn = 0;
+        }
         return;
       }
       this.countingDown = true;
@@ -758,7 +810,10 @@ export class Sim {
     }
     if (!this.countingDown) return;
     this.nextWaveIn -= dt;
-    if (this.nextWaveIn <= 0) this.callWave();
+    if (this.nextWaveIn <= 0) {
+      if (this.autoWaves) this.callWave();
+      else this.nextWaveIn = 0;
+    }
   }
 
   private checkVictory(): void {
@@ -861,6 +916,7 @@ export class Sim {
       const index = this.actors.indexOf(removed);
       if (index >= 0) this.actors.splice(index, 1);
     }
+    const priorCount = existing.length;
     const normal = this.normalAt(tower.rx, tower.ry);
     while (existing.length < stats.soldiers) {
       const actor = this.blankActor("soldier", tower.id, stats.hp);
@@ -871,10 +927,8 @@ export class Sim {
       const slot = index - (stats.soldiers - 1) / 2;
       const offset = slot * 22;
       const lead = slot === 0 ? -10 : 8;
+      const newborn = index >= priorCount;
       actor.maxHp = stats.hp;
-      actor.hp = actor.maxHp;
-      actor.alive = true;
-      actor.respawnLeft = 0;
       actor.armor = stats.armor;
       actor.dmgMin = stats.min;
       actor.dmgMax = stats.max;
@@ -887,10 +941,19 @@ export class Sim {
       actor.ry = tower.ry;
       actor.ox = normal.x * offset - normal.y * lead;
       actor.oy = normal.y * offset + normal.x * lead;
-      actor.x = actor.rx + actor.ox;
-      actor.y = actor.ry + actor.oy;
       actor.leash = 140;
       actor.speed = 125;
+      if (newborn) {
+        actor.hp = actor.maxHp;
+        actor.alive = true;
+        actor.respawnLeft = 0;
+        actor.x = actor.rx + actor.ox;
+        actor.y = actor.ry + actor.oy;
+      } else if (actor.alive) {
+        actor.hp = Math.min(actor.hp, actor.maxHp);
+        actor.x = actor.rx + actor.ox;
+        actor.y = actor.ry + actor.oy;
+      }
     });
   }
 
@@ -1030,6 +1093,20 @@ export class Sim {
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
       if (enemy.flying && !air) continue;
+      const gap = dist(enemy, { x, y });
+      if (gap <= bestDist) {
+        bestDist = gap;
+        best = enemy;
+      }
+    }
+    return best;
+  }
+
+  private nearestFlyer(x: number, y: number, range: number): EnemyInst | null {
+    let best: EnemyInst | null = null;
+    let bestDist = range;
+    for (const enemy of this.enemies) {
+      if (!enemy.alive || !enemy.flying) continue;
       const gap = dist(enemy, { x, y });
       if (gap <= bestDist) {
         bestDist = gap;

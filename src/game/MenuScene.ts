@@ -53,13 +53,6 @@ export class MenuScene extends Phaser.Scene {
       if (label instanceof Phaser.GameObjects.Text) label.setText(muted ? "Sound off" : "Sound on");
     });
 
-    this.add.text(640, 696, "An original tower defense. Not affiliated with Ironhide Game Studio.", {
-      fontFamily: UI_FONT,
-      fontSize: "14px",
-      color: CREAM,
-      stroke: "#2a1a10",
-      strokeThickness: 3,
-    }).setOrigin(0.5);
   }
 
   private showNotes(): void {
@@ -73,7 +66,8 @@ export class MenuScene extends Phaser.Scene {
       "Barracks put soldiers on the road. Each one stops a single ground foe.",
       "Archers are fast and can hit fliers. Magic ignores armor but misses the sky.",
       "Mortars aim at the ground. The blast still catches anything in it.",
-      "Call the next wave early for bonus gold. The skull sign shows what is coming.",
+      "Auto march is the default for new saves: a prep clock, then waves call themselves. Switch to Manual on the map brief or battle HUD.",
+      "Between waves, call early for bonus gold. Prep before wave 1 is build time only — no early gold. The skull sign shows what is coming.",
       "Sell a tower for the full cost before wave 1, or 60% after.",
       "At tier 3, the fourth upgrade is a choice of two specialties.",
       "1 reinforcements, 2 spore rain, right-click moves Warden Puff.",

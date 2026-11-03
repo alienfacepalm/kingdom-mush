@@ -135,6 +135,131 @@ describe("campaign rules", () => {
     expect(sim.gold).toBe(gold + bonus);
   });
 
+  it("auto prep calls wave 1 when the countdown runs out", () => {
+    const sim = new Sim(LEVELS[0], NEUTRAL_BONUSES, mulberry32(3));
+    sim.setAutoWaves(true);
+    sim.armPrep();
+    expect(sim.countingDown).toBe(true);
+    expect(sim.phase).toBe("prep");
+    for (let i = 0; i < Sim.PREP_SECONDS * 30 + 5; i++) sim.step(1 / 30);
+    expect(sim.waveStarted).toBe(1);
+    expect(sim.phase).toBe("combat");
+  });
+
+  it("manual mode waits for a call instead of auto-starting", () => {
+    const sim = new Sim(LEVELS[0], NEUTRAL_BONUSES, mulberry32(4));
+    sim.setAutoWaves(false);
+    expect(sim.countingDown).toBe(false);
+    for (let i = 0; i < 30; i++) sim.step(1 / 30);
+    expect(sim.waveStarted).toBe(0);
+    expect(sim.phase).toBe("prep");
+    expect(sim.callWave()).toBe(0);
+    expect(sim.waveStarted).toBe(1);
+  });
+
+  it("does not pay early gold or shave power CDs for the wave-1 prep clock", () => {
+    const sim = new Sim(levelById("forkfen"), NEUTRAL_BONUSES, mulberry32(5));
+    sim.setAutoWaves(true);
+    sim.armPrep();
+    expect(sim.castReinforcement(200, 547)).toBe(true);
+    expect(sim.reinCd).toBeGreaterThan(0);
+    const gold = sim.gold;
+    const rein = sim.reinCd;
+    expect(sim.callWave()).toBe(0);
+    expect(sim.gold).toBe(gold);
+    expect(sim.reinCd).toBe(rein);
+    expect(sim.waveStarted).toBe(1);
+  });
+
+  it("keeps Manual callable after a zero gap between waves", () => {
+    const tiny = {
+      ...LEVELS[0],
+      id: "gap0",
+      waves: [
+        { gap: 0, spawns: [{ pathId: "main", enemyId: "sprout", count: 1, interval: 0.5 }] },
+        { gap: 0, spawns: [{ pathId: "main", enemyId: "sprout", count: 1, interval: 0.5 }] },
+      ],
+    };
+    const sim = new Sim(tiny, NEUTRAL_BONUSES, mulberry32(6));
+    sim.setAutoWaves(false);
+    expect(sim.callWave()).toBe(0);
+    for (let i = 0; i < 90; i++) sim.step(1 / 30);
+    expect(sim.canCall()).toBe(true);
+    expect(sim.callWave()).toBe(0);
+    expect(sim.waveStarted).toBe(2);
+  });
+
+  it("disarms prep when switching off Auto and does not re-arm for free gold", () => {
+    const sim = new Sim(LEVELS[0], NEUTRAL_BONUSES, mulberry32(7));
+    sim.setAutoWaves(false);
+    for (let i = 0; i < 60; i++) sim.step(1 / 30);
+    sim.setAutoWaves(true);
+    expect(sim.countingDown).toBe(false);
+    expect(sim.callWave()).toBe(0);
+    expect(sim.gold).toBe(LEVELS[0].startGold);
+  });
+
+  it("ticks warden burst cooldown while the hero is alive", () => {
+    const sim = new Sim(levelById("forkfen"), NEUTRAL_BONUSES, mulberry32(8));
+    sim.setAutoWaves(false);
+    sim.callWave();
+    for (let i = 0; i < 90; i++) sim.step(1 / 30);
+    const hero = sim.hero!;
+    hero.x = sim.enemies[0]?.x ?? hero.x;
+    hero.y = sim.enemies[0]?.y ?? hero.y;
+    expect(sim.castHeroBurst()).toBe(true);
+    expect(hero.abilityCd).toBeGreaterThan(0);
+    for (let i = 0; i < 15 * 30; i++) sim.step(1 / 30);
+    expect(hero.alive).toBe(true);
+    expect(hero.abilityCd).toBe(0);
+  });
+
+  it("spawns multi-path groups in parallel on the same call", () => {
+    const dual = {
+      ...levelById("forkfen"),
+      id: "dual",
+      waves: [
+        {
+          gap: 0,
+          spawns: [
+            { pathId: "south", enemyId: "gnat", count: 3, interval: 0.55 },
+            { pathId: "north", enemyId: "gnat", count: 3, interval: 0.6 },
+          ],
+        },
+      ],
+    };
+    const sim = new Sim(dual, NEUTRAL_BONUSES, mulberry32(9));
+    sim.setAutoWaves(false);
+    sim.callWave();
+    for (let i = 0; i < 5; i++) sim.step(1 / 30);
+    const south = sim.enemies.filter((e) => e.pathId === "south" && e.defId === "gnat");
+    const north = sim.enemies.filter((e) => e.pathId === "north" && e.defId === "gnat");
+    expect(south.length).toBeGreaterThan(0);
+    expect(north.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the call sign clear of every build pad", () => {
+    for (const level of LEVELS) {
+      if (!level.callSpot) continue;
+      for (const slot of level.slots) {
+        expect(dist(level.callSpot, slot), `${level.id}:${slot.id}`).toBeGreaterThanOrEqual(90);
+      }
+    }
+  });
+
+  it("does not revive dead soldiers when a barracks upgrades", () => {
+    const sim = new Sim(LEVELS[0], NEUTRAL_BONUSES, mulberry32(10));
+    expect(sim.build("c", "barracks")).toBe(true);
+    const soldier = sim.actors.find((a) => a.kind === "soldier")!;
+    soldier.alive = false;
+    soldier.hp = 0;
+    soldier.respawnLeft = 8;
+    sim.gold += 500;
+    expect(sim.upgrade(sim.towers[0].id)).toBe(true);
+    expect(soldier.alive).toBe(false);
+    expect(soldier.respawnLeft).toBe(8);
+  });
+
   it("lets barracks hold a sproutling that would otherwise walk through", () => {
     const open = roadSim();
     const held = roadSim();

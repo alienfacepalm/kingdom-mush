@@ -103,6 +103,8 @@ export interface LevelDef {
   hero: boolean;
   heroStart: Pt;
   heroHome: Pt;
+  /** Optional spawn/call marker. When omitted, BattleScene plants it on the road near the gate. */
+  callSpot?: Pt;
   reinforcementFromWave: number;
   rainFromWave: number;
   scenery: Scenery;
@@ -121,4 +123,6 @@ export interface Bonuses {
 export interface SaveData {
   best: Record<string, number>;
   bought: string[];
+  /** When true (default), each march starts a prep countdown and waves call themselves. */
+  autoWaves: boolean;
 }

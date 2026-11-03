@@ -4,7 +4,11 @@ import type { SaveData } from "./types";
 export const SAVE_KEY = "capkeep-save-v1";
 
 export function emptySave(): SaveData {
-  return { best: {}, bought: [] };
+  return { best: {}, bought: [], autoWaves: true };
+}
+
+export function setAutoWaves(save: SaveData, autoWaves: boolean): SaveData {
+  return { ...save, best: { ...save.best }, bought: save.bought.slice(), autoWaves };
 }
 
 export function starsEarned(save: SaveData): number {
@@ -18,18 +22,18 @@ export function starsAvailable(save: SaveData): number {
 export function applyClear(save: SaveData, levelId: string, stars: number): SaveData {
   const best = { ...save.best };
   best[levelId] = Math.max(best[levelId] ?? 0, stars);
-  return { best, bought: save.bought.slice() };
+  return { best, bought: save.bought.slice(), autoWaves: save.autoWaves };
 }
 
 export function buyUpgrade(save: SaveData, id: string): SaveData | null {
   if (!META_UPGRADES.some((upgrade) => upgrade.id === id)) return null;
   if (save.bought.includes(id)) return null;
   if (starsAvailable(save) < 1) return null;
-  return { best: { ...save.best }, bought: [...save.bought, id] };
+  return { best: { ...save.best }, bought: [...save.bought, id], autoWaves: save.autoWaves };
 }
 
 export function resetUpgrades(save: SaveData): SaveData {
-  return { best: { ...save.best }, bought: [] };
+  return { best: { ...save.best }, bought: [], autoWaves: save.autoWaves };
 }
 
 export function loadSave(): SaveData {
@@ -45,7 +49,9 @@ export function loadSave(): SaveData {
       }
     }
     const bought = Array.isArray(parsed.bought) ? parsed.bought.filter((id) => typeof id === "string") : [];
-    return { best, bought };
+    // Missing flag = pre-auto saves; keep call-yourself behavior. New empty saves still default true.
+    const autoWaves = typeof parsed.autoWaves === "boolean" ? parsed.autoWaves : false;
+    return { best, bought, autoWaves };
   } catch {
     return emptySave();
   }

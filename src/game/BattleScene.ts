@@ -14,7 +14,7 @@ import {
   towerDisplayName,
 } from "../content/catalog";
 import { LEVELS, levelById } from "../content/levels";
-import { applyClear, commitSave, loadSave } from "../content/save";
+import { applyClear, commitSave, loadSave, setAutoWaves } from "../content/save";
 import type { Branch, Family } from "../content/types";
 import { starsFor } from "../sim/combat";
 import { mulberry32 } from "../sim/rng";
@@ -123,6 +123,8 @@ export class BattleScene extends Phaser.Scene {
   private burstLabel?: Phaser.GameObjects.Text;
   private reinSlot!: Phaser.GameObjects.Image;
   private rainSlot!: Phaser.GameObjects.Image;
+  private countdownText?: Phaser.GameObjects.Text;
+  private autoLabel?: Phaser.GameObjects.Text;
 
   constructor() {
     super("battle");
@@ -152,6 +154,8 @@ export class BattleScene extends Phaser.Scene {
     const level = levelById(this.levelId);
     const save = loadSave();
     this.sim = new Sim(level, bonusesFrom(save.bought), mulberry32((Date.now() ^ (level.index * 997)) >>> 0));
+    this.sim.setAutoWaves(save.autoWaves);
+    if (save.autoWaves) this.sim.armPrep();
     this.lastLives = this.sim.lives;
     this.drawTerrain();
     this.overlay = this.add.graphics().setDepth(1.5);
@@ -174,7 +178,11 @@ export class BattleScene extends Phaser.Scene {
       else this.togglePause();
     });
     keyboard?.addCapture(["SPACE"]);
-    this.toast(level.index === 1 ? "Build on the pads. Barracks hold the road." : level.briefing);
+    if (this.sim.autoWaves) {
+      this.toast(level.index === 1 ? `Build now — wave 1 in ${Sim.PREP_SECONDS}s. Pause freezes the clock.` : `Auto march — wave 1 in ${Sim.PREP_SECONDS}s.`);
+    } else {
+      this.toast(level.index === 1 ? "Build on the pads, then call the first wave." : level.briefing);
+    }
   }
 
   update(_time: number, delta: number): void {
@@ -213,11 +221,18 @@ export class BattleScene extends Phaser.Scene {
     for (const slot of level.slots) {
       art(this, slot.x, slot.y, "pad", "pad").setDepth(1);
     }
-    const start = level.paths[0].points[0];
-    this.skull = {
-      x: Phaser.Math.Clamp(start.x + 44, 64, 1180),
-      y: Phaser.Math.Clamp(start.y - 58, 96, 590),
-    };
+    // Prefer an authored call spot; otherwise plant the sign on the dirt just inside the gate
+    // (offsetting above the road often lands on painted bushes).
+    if (level.callSpot) {
+      this.skull = { x: level.callSpot.x, y: level.callSpot.y };
+    } else {
+      const start = level.paths[0].points[0];
+      const next = level.paths[0].points[1] ?? start;
+      this.skull = {
+        x: Phaser.Math.Clamp(start.x + (next.x - start.x) * 0.08 + 48, 70, 1180),
+        y: Phaser.Math.Clamp(start.y + (next.y - start.y) * 0.08 + 10, 100, 600),
+      };
+    }
   }
 
   private drawFallbackTerrain(): void {
@@ -300,20 +315,55 @@ export class BattleScene extends Phaser.Scene {
     this.skullButton = this.add.image(this.skull.x, this.skull.y, source.key, source.frame).setDepth(15).setInteractive({ useHandCursor: true });
     this.skullButton.setDisplaySize(72, 72);
     this.skullButton.on("pointerdown", (pointer: Phaser.Input.Pointer, lx: number, ly: number, event: Phaser.Types.Input.EventData) => {
+      void lx;
+      void ly;
+      event.stopPropagation();
+      // Placement modes need the road/crowd under the sign; don't eat those clicks.
+      if (this.place) {
+        this.onWorld(pointer);
+        return;
+      }
+      this.previewOpen = !this.previewOpen;
+      this.preview?.setVisible(this.previewOpen);
+    });
+    this.countdownText = this.add.text(this.skull.x, this.skull.y + 48, "", {
+      fontFamily: DISPLAY_FONT,
+      fontSize: "22px",
+      color: GOLD,
+      stroke: "#2a1a10",
+      strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(16);
+    const px = Phaser.Math.Clamp(this.skull.x + 170, 150, 1130);
+    const py = Phaser.Math.Clamp(this.skull.y + 10, 150, 560);
+    this.preview = this.add.container(px, py).setDepth(17).setVisible(false);
+    const bg = parchment(this, 0, 0, 270, 210);
+    this.previewBody = this.add.text(-112, -86, "", { fontFamily: UI_FONT, fontSize: "15px", color: INK, wordWrap: { width: 230 } });
+    const call = woodButton(this, 0, 48, 160, 40, "Call wave", () => this.callWave(), 18);
+    this.preview.add([bg, this.previewBody, call]);
+
+    this.autoLabel = this.add.text(980, 14, "", { fontFamily: UI_FONT, fontSize: "14px", color: CREAM }).setDepth(15).setInteractive({ useHandCursor: true });
+    this.autoLabel.on("pointerdown", (pointer: Phaser.Input.Pointer, lx: number, ly: number, event: Phaser.Types.Input.EventData) => {
       void pointer;
       void lx;
       void ly;
       event.stopPropagation();
-      this.previewOpen = !this.previewOpen;
-      this.preview?.setVisible(this.previewOpen);
+      this.toggleAuto();
     });
-    const px = Phaser.Math.Clamp(this.skull.x + 170, 150, 1130);
-    const py = Phaser.Math.Clamp(this.skull.y + 10, 150, 560);
-    this.preview = this.add.container(px, py).setDepth(17).setVisible(false);
-    const bg = parchment(this, 0, 0, 270, 190);
-    this.previewBody = this.add.text(-112, -74, "", { fontFamily: UI_FONT, fontSize: "15px", color: INK, wordWrap: { width: 230 } });
-    const call = woodButton(this, 0, 62, 160, 40, "Call wave", () => this.callWave(), 18);
-    this.preview.add([bg, this.previewBody, call]);
+    this.refreshAutoLabel();
+  }
+
+  private toggleAuto(): void {
+    const next = !this.sim.autoWaves;
+    this.sim.setAutoWaves(next);
+    commitSave(setAutoWaves(loadSave(), next));
+    this.refreshAutoLabel();
+    sfx.ui();
+    this.toast(next ? "Auto march on — waves call themselves." : "Manual — call each wave yourself.");
+  }
+
+  private refreshAutoLabel(): void {
+    this.autoLabel?.setText(this.sim.autoWaves ? "Auto on" : "Manual");
+    this.autoLabel?.setColor(this.sim.autoWaves ? GOLD : CREAM);
   }
 
   private slotButton(x: number, y: number, frame: string, onClick: () => void): Phaser.GameObjects.Image {
@@ -691,6 +741,18 @@ export class BattleScene extends Phaser.Scene {
       this.burstLabel.setText(sim.hero.abilityCd > 0.05 ? `Burst  ${Math.ceil(sim.hero.abilityCd)}s` : "Burst  H");
     }
     this.speedButton?.setTint(this.speed === 2 ? 0xfff0a0 : 0xffffff);
+    if (this.countdownText) {
+      if (sim.countingDown && sim.canCall() && sim.nextWaveIn > 0) {
+        const secs = Math.max(0, Math.ceil(sim.nextWaveIn));
+        this.countdownText.setText(this.paused ? `Paused ${secs}` : String(secs));
+        this.countdownText.setVisible(true);
+      } else if (sim.canCall() && sim.waveStarted > 0 && (!sim.countingDown || sim.nextWaveIn <= 0) && !sim.autoWaves) {
+        this.countdownText.setText("Call");
+        this.countdownText.setVisible(true);
+      } else {
+        this.countdownText.setVisible(false);
+      }
+    }
     this.writeInfo();
     this.refreshSelection();
     if (this.previewOpen && this.previewBody) {
@@ -701,8 +763,14 @@ export class BattleScene extends Phaser.Scene {
           const name = ENEMY_MAP[group.enemyId]?.name ?? group.enemyId;
           return `${group.pathName}: ${name} ×${group.count}`;
         });
-        const bonus = sim.canCall() && sim.waveStarted > 0 ? `\nCall now  +${sim.earlyBonus()} gold` : sim.canCall() ? "\nCall the first wave" : "";
-        this.previewBody.setText(`Wave ${sim.waveStarted + 1}\n` + lines.join("\n") + bonus);
+        let tip = "";
+        if (sim.canCall() && sim.countingDown && sim.nextWaveIn > 0) {
+          tip = sim.autoWaves
+            ? `\nAuto in ${Math.ceil(sim.nextWaveIn)}s  ·  Call early +${sim.earlyBonus()} gold`
+            : `\nReady in ${Math.ceil(sim.nextWaveIn)}s  ·  Call for +${sim.earlyBonus()} gold`;
+        } else if (sim.canCall() && sim.waveStarted === 0) tip = "\nCall the first wave";
+        else if (sim.canCall()) tip = "\nCall when ready";
+        this.previewBody.setText(`Wave ${sim.waveStarted + 1}\n` + lines.join("\n") + tip);
       }
     }
   }
@@ -717,7 +785,18 @@ export class BattleScene extends Phaser.Scene {
     const sel = this.selection;
     if (!sel) {
       this.infoTitle.setText(this.place ? "Choose a spot" : "Capkeep");
-      this.infoBody.setText(this.place === "rally" ? "Click the road near this barracks." : "Select a pad, tower, or foe. Right-click moves the warden.");
+      if (this.place === "rally") this.infoBody.setText("Click the road near this barracks.");
+      else if (this.sim.countingDown && this.sim.canCall() && this.sim.nextWaveIn > 0) {
+        this.infoBody.setText(
+          this.paused
+            ? `Paused — wave ${this.sim.waveStarted + 1} waits. Resume to keep the clock running.`
+            : `Wave ${this.sim.waveStarted + 1} in ${Math.ceil(this.sim.nextWaveIn)}s. Call early for bonus gold.`,
+        );
+      } else if (this.sim.canCall() && this.sim.waveStarted === 0) {
+        this.infoBody.setText("Call the first wave when you are ready.");
+      } else if (this.sim.canCall()) {
+        this.infoBody.setText(`Call wave ${this.sim.waveStarted + 1} when you are ready.`);
+      } else this.infoBody.setText("Select a pad, tower, or foe. Right-click moves the warden.");
       return;
     }
     if (sel.kind === "slot") {
@@ -876,8 +955,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private tryBurst(): void {
+    if (this.modal || this.paused) return;
     if (!this.sim.hero) {
-      this.toast("The warden joins after Dust Basin.");
+      this.toast("The warden joins at Rift Fork.");
       return;
     }
     if (!this.sim.castHeroBurst()) this.toast("Burst only fires with a foe in reach.");

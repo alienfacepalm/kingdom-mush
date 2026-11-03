@@ -21,6 +21,8 @@ export const LEVELS: LevelDef[] = [
     hero: false,
     heroStart: { x: 520, y: 500 },
     heroHome: { x: 1000, y: 400 },
+    // Keep the sign clear of pad a (80,520) and the entrance road click zone.
+    callSpot: { x: 48, y: 392 },
     reinforcementFromWave: 3,
     rainFromWave: 6,
     paths: [
@@ -69,6 +71,8 @@ export const LEVELS: LevelDef[] = [
     hero: false,
     heroStart: { x: 700, y: 460 },
     heroHome: { x: 480, y: 420 },
+    // Above the cut, clear of pad c1 and the road under the gate.
+    callSpot: { x: 48, y: 220 },
     reinforcementFromWave: 2,
     rainFromWave: 4,
     paths: [
@@ -87,12 +91,12 @@ export const LEVELS: LevelDef[] = [
     ],
     slots: [
       { id: "c1", x: 110, y: 356 },
-      { id: "c2", x: 200, y: 215 },
+      { id: "c2", x: 300, y: 220 },
       { id: "c3", x: 445, y: 375 },
       { id: "c4", x: 705, y: 400 },
       { id: "c5", x: 945, y: 452 },
-      { id: "c6", x: 940, y: 601 },
-      { id: "c7", x: 648, y: 594 },
+      { id: "c6", x: 840, y: 605 },
+      { id: "c7", x: 560, y: 575 },
     ],
     waves: [
       wave(16, [pack("lane", "sprout", 6, 0.7)]),
@@ -117,6 +121,8 @@ export const LEVELS: LevelDef[] = [
     hero: true,
     heroStart: { x: 800, y: 460 },
     heroHome: { x: 1040, y: 400 },
+    // Between the veins, clear of south pad a2 (113,589) and the gate road.
+    callSpot: { x: 48, y: 400 },
     reinforcementFromWave: 1,
     rainFromWave: 1,
     paths: [
@@ -176,6 +182,8 @@ export const LEVELS: LevelDef[] = [
     hero: true,
     heroStart: { x: 500, y: 400 },
     heroHome: { x: 900, y: 420 },
+    // Clear of pad y1 (140,277) and the yard entrance.
+    callSpot: { x: 48, y: 168 },
     reinforcementFromWave: 1,
     rainFromWave: 1,
     paths: [
@@ -223,6 +231,8 @@ export const LEVELS: LevelDef[] = [
     hero: true,
     heroStart: { x: 520, y: 400 },
     heroHome: { x: 980, y: 420 },
+    // Clear of the citadel entrance pads and road.
+    callSpot: { x: 48, y: 170 },
     reinforcementFromWave: 1,
     rainFromWave: 1,
     paths: [
