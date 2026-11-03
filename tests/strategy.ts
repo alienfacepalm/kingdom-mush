@@ -20,6 +20,17 @@ export interface Plan {
 }
 
 export const PLANS: Record<string, Plan> = {
+  glasscut: {
+    builds: [
+      { slot: "c4", family: "barracks" },
+      { slot: "c3", family: "mage" },
+      { slot: "c2", family: "archer" },
+      { slot: "c7", family: "barracks" },
+      { slot: "c5", family: "archer" },
+    ],
+    upgradeSlots: ["c4", "c3", "c2", "c7", "c5"],
+    branches: [],
+  },
   dewcap: {
     builds: [
       { slot: "c", family: "barracks" },
@@ -45,6 +56,21 @@ export const PLANS: Record<string, Plan> = {
       { slot: "a2", branch: "a" },
       { slot: "m1", branch: "b" },
       { slot: "a3", branch: "b" },
+    ],
+  },
+  spireyard: {
+    builds: [
+      { slot: "y2", family: "barracks" },
+      { slot: "y3", family: "mage" },
+      { slot: "y1", family: "archer" },
+      { slot: "y5", family: "artillery" },
+    ],
+    upgradeSlots: ["y2", "y3", "y1", "y5"],
+    branches: [
+      { slot: "y2", branch: "a" },
+      { slot: "y3", branch: "b" },
+      { slot: "y1", branch: "b" },
+      { slot: "y5", branch: "a" },
     ],
   },
   blackcap: {

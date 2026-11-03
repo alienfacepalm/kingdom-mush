@@ -2,8 +2,17 @@ import Phaser from "phaser";
 import { META_UPGRADES } from "../content/catalog";
 import { LEVELS, isUnlocked } from "../content/levels";
 import { buyUpgrade, commitSave, loadSave, resetUpgrades, starsAvailable } from "../content/save";
-import { UI_FONT, woodButton } from "./draw";
+import { CREAM, DISPLAY_FONT, GOLD, INK, INK_SOFT, UI_FONT, art, hasFrame, paintTextures, parchment, plank, woodButton } from "./draw";
 import { sfx } from "./sfx";
+
+/** Landmark positions on public/art/bg/worldmap.jpg, in level order. */
+const SPOTS = [
+  { x: 190, y: 470 },
+  { x: 412, y: 420 },
+  { x: 630, y: 352 },
+  { x: 858, y: 278 },
+  { x: 1080, y: 170 },
+];
 
 export class MapScene extends Phaser.Scene {
   private starsText?: Phaser.GameObjects.Text;
@@ -13,65 +22,69 @@ export class MapScene extends Phaser.Scene {
   }
 
   create(): void {
+    paintTextures(this);
     const save = loadSave();
-    const g = this.add.graphics();
-    g.fillStyle(0x1d4a32);
-    g.fillRect(0, 0, 1280, 720);
-    g.fillStyle(0xc2a15a);
-    g.lineStyle(18, 0xc2a15a);
-    g.beginPath();
-    g.moveTo(360, 560);
-    g.lineTo(520, 430);
-    g.lineTo(700, 360);
-    g.lineTo(900, 220);
-    g.strokePath();
+    if (this.textures.exists("bg-worldmap")) {
+      this.add.image(640, 360, "bg-worldmap");
+    } else {
+      const g = this.add.graphics();
+      g.fillStyle(0x1d4a32);
+      g.fillRect(0, 0, 1280, 720);
+      g.lineStyle(18, 0xc2a15a);
+      g.beginPath();
+      g.moveTo(SPOTS[0].x, SPOTS[0].y);
+      for (const spot of SPOTS.slice(1)) g.lineTo(spot.x, spot.y);
+      g.strokePath();
+    }
 
-    this.add.text(80, 36, "The Capkeep marches", {
-      fontFamily: "Georgia, serif",
-      fontSize: "36px",
-      color: "#f2c14e",
-    });
-    this.starsText = this.add.text(80, 84, this.starLine(save.best, save.bought), {
+    plank(this, -4, -4, 1288, 56).setDepth(5);
+    this.add.text(24, 12, "The landing", { fontFamily: DISPLAY_FONT, fontSize: "26px", color: GOLD }).setDepth(6);
+    this.starsText = this.add.text(1256, 16, this.starLine(save.best, save.bought), {
       fontFamily: UI_FONT,
-      fontSize: "18px",
-      color: "#f4f0e6",
-    });
+      fontSize: "16px",
+      color: CREAM,
+    }).setOrigin(1, 0).setDepth(6);
 
-    const spots = [
-      { x: 360, y: 560 },
-      { x: 700, y: 360 },
-      { x: 900, y: 220 },
-    ];
     LEVELS.forEach((level, index) => {
-      const spot = spots[index];
+      const spot = SPOTS[index];
       const open = isUnlocked(save.best, level);
       const stars = save.best[level.id] ?? 0;
-      const node = this.add.circle(spot.x, spot.y, 36, open ? 0xe0b15a : 0x5a6458).setStrokeStyle(4, 0x3a2a1a);
-      this.add.text(spot.x, spot.y - 4, String(level.index), {
-        fontFamily: "Georgia, serif",
-        fontSize: "28px",
-        color: "#1c2430",
-      }).setOrigin(0.5);
-      this.add.text(spot.x, spot.y + 52, level.name, {
-        fontFamily: UI_FONT,
-        fontSize: "18px",
-        color: "#f4f0e6",
-      }).setOrigin(0.5);
-      this.add.text(spot.x, spot.y + 76, open ? "★".repeat(stars) + "☆".repeat(3 - stars) : "Locked", {
-        fontFamily: UI_FONT,
-        fontSize: "16px",
-        color: stars > 0 ? "#f2c14e" : "#8aa090",
-      }).setOrigin(0.5);
-      if (!open) {
-        node.setAlpha(0.7);
-        return;
+      const marker = hasFrame(this, "pad-flag")
+        ? art(this, spot.x, spot.y, "pad-flag", "pad").setDisplaySize(72, 72)
+        : this.add.circle(spot.x, spot.y, 30, 0xe0b15a).setStrokeStyle(4, 0x3a2a1a);
+      marker.setDepth(2);
+      if (!open) marker.setAlpha(0.5);
+      const badge = this.add.circle(spot.x + 24, spot.y - 22, 15, open ? 0xf2c14e : 0x6b6b60).setStrokeStyle(3, 0x3a2416).setDepth(3);
+      this.add.text(badge.x, badge.y, String(level.index), { fontFamily: DISPLAY_FONT, fontSize: "16px", color: INK }).setOrigin(0.5).setDepth(4);
+      this.add.text(spot.x, spot.y + 44, level.name, {
+        fontFamily: DISPLAY_FONT,
+        fontSize: "17px",
+        color: CREAM,
+        stroke: "#2a1a10",
+        strokeThickness: 5,
+      }).setOrigin(0.5).setDepth(4);
+      const starRow = this.add.container(spot.x, spot.y + 70).setDepth(4);
+      if (open) {
+        for (let i = 0; i < 3; i++) {
+          const star = art(this, -22 + i * 22, 0, "ic-star", "dot").setDisplaySize(20, 20);
+          star.setAlpha(i < stars ? 1 : 0.3);
+          starRow.add(star);
+        }
+      } else {
+        starRow.add(this.add.text(0, 0, "Locked", { fontFamily: UI_FONT, fontSize: "14px", color: "#d9c08a", stroke: "#2a1a10", strokeThickness: 3 }).setOrigin(0.5));
       }
-      node.setInteractive({ useHandCursor: true });
-      node.on("pointerdown", () => this.openBrief(level.id));
+      if (!open) return;
+      marker.setInteractive({ useHandCursor: true });
+      marker.on("pointerover", () => marker.setDisplaySize(80, 80));
+      marker.on("pointerout", () => marker.setDisplaySize(72, 72));
+      marker.on("pointerdown", () => this.openBrief(level.id));
+      if (stars === 0 && !this.children.getByName("bounce")) {
+        this.tweens.add({ targets: marker, y: spot.y - 6, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      }
     });
 
-    woodButton(this, 160, 660, 200, 48, "Studies", () => this.openStudies());
-    woodButton(this, 1120, 660, 200, 48, "Title", () => this.scene.start("menu"));
+    woodButton(this, 150, 672, 220, 50, "Studies", () => this.openStudies());
+    woodButton(this, 1130, 672, 220, 50, "Title", () => this.scene.start("menu"));
   }
 
   private starLine(best: Record<string, number>, bought: string[]): string {
@@ -84,68 +97,74 @@ export class MapScene extends Phaser.Scene {
     if (!level || this.children.getByName("brief")) return;
     sfx.ui();
     const panel = this.add.container(640, 360).setName("brief").setDepth(20);
-    const bg = this.add.rectangle(0, 0, 640, 320, 0x1c2430, 0.97).setStrokeStyle(4, 0xe0b15a);
-    const title = this.add.text(0, -120, level.name, { fontFamily: "Georgia, serif", fontSize: "32px", color: "#f2c14e" }).setOrigin(0.5);
-    const body = this.add.text(-280, -70, level.briefing, {
+    const dim = this.add.rectangle(0, 0, 1280, 720, 0x100804, 0.45).setInteractive();
+    const bg = parchment(this, 0, 0, 660, 340);
+    const title = this.add.text(0, -128, level.name, { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
+    const body = this.add.text(-280, -80, level.briefing, {
       fontFamily: UI_FONT,
       fontSize: "18px",
-      color: "#f4f0e6",
+      color: INK_SOFT,
       wordWrap: { width: 560 },
     });
-    const meta = this.add.text(-280, 40, `Lives 20   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
+    const meta = this.add.text(-280, 44, `Lives 20   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
       fontFamily: UI_FONT,
       fontSize: "16px",
-      color: "#e0b15a",
+      color: INK,
     });
-    const go = woodButton(this, 120, 110, 180, 48, "To battle", () => {
+    const go = woodButton(this, 120, 116, 190, 48, "To battle", () => {
       sfx.unlock();
       this.scene.start("battle", { levelId });
     }, 21);
-    const back = woodButton(this, -100, 110, 140, 48, "Back", () => panel.destroy(true), 21);
-    panel.add([bg, title, body, meta, go, back]);
+    const back = woodButton(this, -110, 116, 150, 48, "Back", () => panel.destroy(true), 21);
+    panel.add([dim, bg, title, body, meta, go, back]);
+    panel.setScale(0.85);
+    this.tweens.add({ targets: panel, scale: 1, duration: 220, ease: "Back.easeOut" });
   }
 
   private openStudies(): void {
     if (this.children.getByName("studies")) return;
     const save = loadSave();
     const panel = this.add.container(640, 370).setName("studies").setDepth(20);
-    const bg = this.add.rectangle(0, 0, 820, 560, 0x1c2430, 0.98).setStrokeStyle(4, 0xe0b15a);
-    const title = this.add.text(0, -240, "Studies", { fontFamily: "Georgia, serif", fontSize: "32px", color: "#f2c14e" }).setOrigin(0.5);
-    const available = this.add.text(0, -200, `${starsAvailable(save)} stars available`, {
+    const dim = this.add.rectangle(0, -10, 1280, 720, 0x100804, 0.45).setInteractive();
+    const bg = parchment(this, 0, 0, 840, 580);
+    const title = this.add.text(0, -250, "Studies", { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
+    const available = this.add.text(0, -210, `${starsAvailable(save)} stars available`, {
       fontFamily: UI_FONT,
       fontSize: "16px",
-      color: "#f4f0e6",
+      color: INK_SOFT,
     }).setOrigin(0.5);
-    panel.add([bg, title, available]);
+    panel.add([dim, bg, title, available]);
     META_UPGRADES.forEach((upgrade, index) => {
       const owned = save.bought.includes(upgrade.id);
-      const y = -150 + index * 52;
+      const y = -160 + index * 52;
       const row = this.add.text(-360, y, `${upgrade.name}  —  ${upgrade.desc}`, {
         fontFamily: UI_FONT,
         fontSize: "16px",
-        color: owned ? "#9be07a" : "#f4f0e6",
+        color: owned ? "#2f6e3a" : INK,
       });
       panel.add(row);
-      if (!owned) {
-        const buy = woodButton(this, 300, y + 8, 100, 36, "1 ★", () => {
-          const next = buyUpgrade(loadSave(), upgrade.id);
-          if (!next) return;
-          commitSave(next);
-          sfx.ui();
-          panel.destroy(true);
-          this.openStudies();
-          this.refreshStars();
-        }, 21);
-        panel.add(buy);
+      if (owned) {
+        panel.add(art(this, 330, y + 10, "ic-star", "dot").setDisplaySize(26, 26));
+        return;
       }
+      const buy = woodButton(this, 330, y + 8, 110, 36, "1 star", () => {
+        const next = buyUpgrade(loadSave(), upgrade.id);
+        if (!next) return;
+        commitSave(next);
+        sfx.ui();
+        panel.destroy(true);
+        this.openStudies();
+        this.refreshStars();
+      }, 21);
+      panel.add(buy);
     });
-    const reset = woodButton(this, -120, 230, 160, 44, "Reset", () => {
+    const reset = woodButton(this, -120, 240, 170, 44, "Reset", () => {
       commitSave(resetUpgrades(loadSave()));
       panel.destroy(true);
       this.openStudies();
       this.refreshStars();
     }, 21);
-    const done = woodButton(this, 120, 230, 160, 44, "Done", () => panel.destroy(true), 21);
+    const done = woodButton(this, 120, 240, 170, 44, "Done", () => panel.destroy(true), 21);
     panel.add([reset, done]);
   }
 

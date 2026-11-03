@@ -17,28 +17,71 @@ import { LEVELS, levelById } from "../content/levels";
 import { applyClear, commitSave, loadSave } from "../content/save";
 import type { Branch, Family } from "../content/types";
 import { starsFor } from "../sim/combat";
-import { buildPoly, closestOnPoly } from "../sim/geom";
 import { mulberry32 } from "../sim/rng";
 import { Sim, type TowerInst } from "../sim/Sim";
-import { UI_FONT, familyKey, paintTextures, woodButton } from "./draw";
+import {
+  ATLAS,
+  CREAM,
+  DISPLAY_FONT,
+  GOLD,
+  INK,
+  INK_SOFT,
+  type Panel,
+  UI_FONT,
+  art,
+  familyIcon,
+  familyKey,
+  hasFrame,
+  iconButton,
+  paintTextures,
+  parchment,
+  pick,
+  plank,
+  towerFrame,
+  woodButton,
+} from "./draw";
 import { sfx } from "./sfx";
 
 type Selection = { kind: "slot" | "tower" | "enemy" | "hero"; id: string };
 type PlaceMode = "reinforcement" | "rain" | "rally" | null;
 
-interface Bolt {
+interface Shot {
+  img: Phaser.GameObjects.Image;
   x1: number;
   y1: number;
   x2: number;
   y2: number;
-  life: number;
+  t: number;
+  dur: number;
   kind: string;
+  arc: number;
+  spin: number;
+}
+
+interface Body {
+  img: Phaser.GameObjects.Image;
+  kind: "enemy" | "actor" | "hero" | "tower";
+  x: number;
+  y: number;
+  facing: number;
+  seed: number;
 }
 
 const SCENERY = {
-  meadow: { sky: 0x8ec8ef, grass: 0x3f8f4a, dirt: 0xc2a15a, edge: 0x8d6a32, prop: 0x2f6e3a },
-  fen: { sky: 0x8eb4c4, grass: 0x2f6a55, dirt: 0x8d9a62, edge: 0x4e5a32, prop: 0x1d4a3c },
-  keep: { sky: 0x8b97a8, grass: 0x4a5560, dirt: 0x6b5a48, edge: 0x3a322c, prop: 0x2c333c },
+  meadow: { sky: 0x8ec8ef, grass: 0x3f8f4a, dirt: 0xc2a15a, edge: 0x8d6a32 },
+  fen: { sky: 0x8eb4c4, grass: 0x2f6a55, dirt: 0x8d9a62, edge: 0x4e5a32 },
+  keep: { sky: 0x8b97a8, grass: 0x4a5560, dirt: 0x6b5a48, edge: 0x3a322c },
+};
+
+const FOE_FRAME: Record<string, string> = {
+  sprout: "sprout",
+  runner: "runner",
+  beetle: "beetle",
+  shade: "shade",
+  gnat: "gnat",
+  brute: "brute",
+  shaman: "shaman",
+  rotking: "rotking",
 };
 
 export class BattleScene extends Phaser.Scene {
@@ -53,8 +96,8 @@ export class BattleScene extends Phaser.Scene {
   private selectKey = "";
   private selectLayer?: Phaser.GameObjects.Container;
   private overlay!: Phaser.GameObjects.Graphics;
-  private bodies = new Map<string, Phaser.GameObjects.Image>();
-  private bolts: Bolt[] = [];
+  private bodies = new Map<string, Body>();
+  private shots: Shot[] = [];
   private floaters: { text: Phaser.GameObjects.Text; life: number }[] = [];
   private livesText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
@@ -64,14 +107,22 @@ export class BattleScene extends Phaser.Scene {
   private toastText!: Phaser.GameObjects.Text;
   private bannerText!: Phaser.GameObjects.Text;
   private cardText!: Phaser.GameObjects.Text;
-  private cardBg!: Phaser.GameObjects.Rectangle;
+  private cardBg!: Panel;
   private cardLife = 0;
   private preview?: Phaser.GameObjects.Container;
   private previewBody?: Phaser.GameObjects.Text;
   private previewOpen = false;
   private skull = { x: 120, y: 120 };
+  private skullButton?: Phaser.GameObjects.Image;
   private lastLives = 20;
   private modal?: Phaser.GameObjects.Container;
+  private clock = 0;
+  private speedButton?: Phaser.GameObjects.Image;
+  private reinLabel!: Phaser.GameObjects.Text;
+  private rainLabel!: Phaser.GameObjects.Text;
+  private burstLabel?: Phaser.GameObjects.Text;
+  private reinSlot!: Phaser.GameObjects.Image;
+  private rainSlot!: Phaser.GameObjects.Image;
 
   constructor() {
     super("battle");
@@ -84,12 +135,26 @@ export class BattleScene extends Phaser.Scene {
   create(): void {
     paintTextures(this);
     sfx.unlock();
+    this.bodies.clear();
+    this.shots = [];
+    this.floaters = [];
+    this.selection = null;
+    this.place = null;
+    this.selectKey = "";
+    this.selectLayer = undefined;
+    this.modal = undefined;
+    this.paused = false;
+    this.ended = false;
+    this.saved = false;
+    this.speed = 1;
+    this.previewOpen = false;
+    this.clock = 0;
     const level = levelById(this.levelId);
     const save = loadSave();
     this.sim = new Sim(level, bonusesFrom(save.bought), mulberry32((Date.now() ^ (level.index * 997)) >>> 0));
     this.lastLives = this.sim.lives;
     this.drawTerrain();
-    this.overlay = this.add.graphics().setDepth(8);
+    this.overlay = this.add.graphics().setDepth(1.5);
     this.buildHud();
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
@@ -98,6 +163,7 @@ export class BattleScene extends Phaser.Scene {
       this.onWorld(pointer);
     });
     const keyboard = this.input.keyboard;
+    keyboard?.removeAllListeners();
     keyboard?.on("keydown-SPACE", () => this.togglePause());
     keyboard?.on("keydown-F", () => this.toggleSpeed());
     keyboard?.on("keydown-ONE", () => this.arm("reinforcement"));
@@ -113,7 +179,10 @@ export class BattleScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const dt = Math.min(0.05, delta / 1000);
-    if (!this.paused && !this.ended) this.sim.step(dt * this.speed);
+    if (!this.paused && !this.ended) {
+      this.sim.step(dt * this.speed);
+      this.clock += dt * this.speed;
+    }
     this.consumeNotices();
     this.syncBodies();
     this.drawOverlay(dt);
@@ -124,7 +193,34 @@ export class BattleScene extends Phaser.Scene {
     this.lastLives = this.sim.lives;
   }
 
+  // ---------------------------------------------------------------- terrain
+
   private drawTerrain(): void {
+    const level = this.sim.level;
+    const bgKey = `bg-${level.id}`;
+    if (this.textures.exists(bgKey)) {
+      this.add.image(640, 360, bgKey).setDepth(0);
+    } else {
+      this.drawFallbackTerrain();
+    }
+    if (!this.textures.exists(bgKey)) {
+      // The paintings already include the hold flags; only the fallback terrain needs them.
+      for (const path of level.paths) {
+        const end = path.points[path.points.length - 1];
+        art(this, end.x, end.y + 4, "flags", "pad").setOrigin(0.5, 0.92).setDepth(this.depthAt(end.y));
+      }
+    }
+    for (const slot of level.slots) {
+      art(this, slot.x, slot.y, "pad", "pad").setDepth(1);
+    }
+    const start = level.paths[0].points[0];
+    this.skull = {
+      x: Phaser.Math.Clamp(start.x + 44, 64, 1180),
+      y: Phaser.Math.Clamp(start.y - 58, 96, 590),
+    };
+  }
+
+  private drawFallbackTerrain(): void {
     const level = this.sim.level;
     const tone = SCENERY[level.scenery];
     const g = this.add.graphics().setDepth(0);
@@ -132,38 +228,12 @@ export class BattleScene extends Phaser.Scene {
     g.fillRect(0, 0, 1280, 220);
     g.fillStyle(tone.grass);
     g.fillRect(0, 160, 1280, 560);
-    const rng = mulberry32(level.index * 80 + 3);
-    for (let i = 0; i < 36; i++) {
-      const x = 30 + rng() * 1220;
-      const y = 80 + rng() * 560;
-      if (this.nearRoad(x, y, 72) || level.slots.some((slot) => Phaser.Math.Distance.Between(slot.x, slot.y, x, y) < 48)) continue;
-      g.fillStyle(tone.prop, 0.9);
-      g.fillCircle(x, y, 16 + rng() * 14);
-      g.fillStyle(level.scenery === "keep" ? 0x6a5030 : 0xc45a4a, 0.95);
-      g.fillEllipse(x, y - 16, 22, 12);
-    }
     for (const path of level.paths) {
       g.lineStyle(46, tone.edge);
       this.strokePath(g, path.points);
       g.lineStyle(34, tone.dirt);
       this.strokePath(g, path.points);
-      const end = path.points[path.points.length - 1];
-      g.fillStyle(0xf4f0e6);
-      g.fillRect(end.x - 18, end.y - 46, 6, 32);
-      g.fillRect(end.x + 12, end.y - 46, 6, 32);
-      g.fillStyle(0xc0392b);
-      g.fillTriangle(end.x - 18, end.y - 46, end.x - 2, end.y - 40, end.x - 18, end.y - 32);
-      g.fillTriangle(end.x + 12, end.y - 46, end.x + 28, end.y - 40, end.x + 12, end.y - 32);
-      this.add.text(end.x, end.y + 28, "HOLD", { fontFamily: UI_FONT, fontSize: "14px", color: "#f4f0e6" }).setOrigin(0.5).setDepth(2);
     }
-    for (const slot of level.slots) {
-      this.add.image(slot.x, slot.y, "pad").setDepth(1);
-    }
-    const start = level.paths[0].points[0];
-    this.skull = {
-      x: Phaser.Math.Clamp(start.x - 72, 64, 1180),
-      y: Phaser.Math.Clamp(start.y - 16, 88, 590),
-    };
   }
 
   private strokePath(g: Phaser.GameObjects.Graphics, points: { x: number; y: number }[]): void {
@@ -173,56 +243,105 @@ export class BattleScene extends Phaser.Scene {
     g.strokePath();
   }
 
-  private nearRoad(x: number, y: number, radius: number): boolean {
-    for (const path of this.sim.level.paths) {
-      if (closestOnPoly(buildPoly(path.points), x, y).gap < radius) return true;
-    }
-    return false;
+  private depthAt(y: number): number {
+    return 2 + Phaser.Math.Clamp(y, 0, 720) / 1000;
   }
 
+  // -------------------------------------------------------------------- HUD
+
   private buildHud(): void {
-    const bar = this.add.graphics().setDepth(14);
-    bar.fillStyle(0x1c2430, 0.94);
-    bar.fillRect(0, 0, 1280, 52);
-    bar.fillRect(0, 656, 1280, 64);
-    this.livesText = this.add.text(24, 14, "", { fontFamily: UI_FONT, fontSize: "22px", color: "#ff8d8d" }).setDepth(15);
-    this.goldText = this.add.text(170, 14, "", { fontFamily: UI_FONT, fontSize: "22px", color: "#f2c14e" }).setDepth(15);
-    this.waveText = this.add.text(360, 14, "", { fontFamily: UI_FONT, fontSize: "22px", color: "#f4f0e6" }).setDepth(15);
-    this.infoTitle = this.add.text(24, 668, "", { fontFamily: "Georgia, serif", fontSize: "20px", color: "#f2c14e" }).setDepth(15);
-    this.infoBody = this.add.text(24, 694, "", { fontFamily: UI_FONT, fontSize: "15px", color: "#f4f0e6" }).setDepth(15);
-    this.toastText = this.add.text(640, 78, "", { fontFamily: UI_FONT, fontSize: "18px", color: "#fff6d8", backgroundColor: "#1c2430", padding: { x: 10, y: 6 } }).setOrigin(0.5, 0).setDepth(18).setAlpha(0);
-    this.bannerText = this.add.text(640, 120, "", { fontFamily: "Georgia, serif", fontSize: "28px", color: "#f2c14e" }).setOrigin(0.5).setDepth(18).setAlpha(0);
-    this.cardBg = this.add.rectangle(250, 210, 340, 150, 0x1c2430, 0.95).setStrokeStyle(3, 0xe0b15a).setDepth(18).setVisible(false);
-    this.cardText = this.add.text(100, 150, "", { fontFamily: UI_FONT, fontSize: "16px", color: "#f4f0e6", wordWrap: { width: 300 } }).setDepth(19).setVisible(false);
+    plank(this, -4, -4, 1288, 56).setDepth(14);
+    plank(this, -4, 656, 1288, 70).setDepth(14);
 
-    const pause = woodButton(this, 1080, 26, 90, 34, "Pause", () => this.togglePause(), 16);
-    const speed = woodButton(this, 1190, 26, 70, 34, "1x", () => this.toggleSpeed(), 16);
-    this.speedButton = speed;
-    void pause;
+    art(this, 34, 26, "ic-heart", "dot").setDisplaySize(34, 34).setDepth(15);
+    this.livesText = this.add.text(58, 13, "", { fontFamily: DISPLAY_FONT, fontSize: "22px", color: "#ff9d9d" }).setDepth(15);
+    art(this, 176, 26, "ic-gold", "dot").setDisplaySize(34, 34).setDepth(15);
+    this.goldText = this.add.text(200, 13, "", { fontFamily: DISPLAY_FONT, fontSize: "22px", color: GOLD }).setDepth(15);
+    art(this, 340, 26, "ic-skull", "dot").setDisplaySize(34, 34).setDepth(15);
+    this.waveText = this.add.text(364, 13, "", { fontFamily: DISPLAY_FONT, fontSize: "22px", color: CREAM }).setDepth(15);
+    this.add.text(640, 26, this.sim.level.name, { fontFamily: DISPLAY_FONT, fontSize: "20px", color: "#d9c08a" }).setOrigin(0.5).setDepth(15);
 
-    const rein = this.add.rectangle(54, 590, 76, 64, 0x3a2a1a).setStrokeStyle(3, 0xe0b15a).setInteractive({ useHandCursor: true }).setDepth(15);
-    const rain = this.add.rectangle(146, 590, 76, 64, 0x3a2a1a).setStrokeStyle(3, 0x8c2f3b).setInteractive({ useHandCursor: true }).setDepth(15);
-    this.reinLabel = this.add.text(54, 590, "Aid\n1", { fontFamily: UI_FONT, fontSize: "14px", color: "#f4f0e6", align: "center" }).setOrigin(0.5).setDepth(16);
-    this.rainLabel = this.add.text(146, 590, "Rain\n2", { fontFamily: UI_FONT, fontSize: "14px", color: "#f4f0e6", align: "center" }).setOrigin(0.5).setDepth(16);
-    rein.on("pointerdown", () => this.arm("reinforcement"));
-    rain.on("pointerdown", () => this.arm("rain"));
+    this.infoTitle = this.add.text(24, 664, "", { fontFamily: DISPLAY_FONT, fontSize: "20px", color: GOLD }).setDepth(15);
+    this.infoBody = this.add.text(24, 692, "", { fontFamily: UI_FONT, fontSize: "15px", color: CREAM }).setDepth(15);
+    this.toastText = this.add.text(640, 78, "", {
+      fontFamily: UI_FONT,
+      fontSize: "18px",
+      color: CREAM,
+      backgroundColor: "#2a1a10",
+      padding: { x: 12, y: 6 },
+    }).setOrigin(0.5, 0).setDepth(18).setAlpha(0);
+    this.bannerText = this.add.text(640, 130, "", {
+      fontFamily: DISPLAY_FONT,
+      fontSize: "40px",
+      color: GOLD,
+      stroke: "#2a1a10",
+      strokeThickness: 8,
+    }).setOrigin(0.5).setDepth(18).setAlpha(0);
 
-    const skull = this.add.circle(this.skull.x, this.skull.y, 28, 0x1c2430).setStrokeStyle(3, 0xe0b15a).setInteractive({ useHandCursor: true }).setDepth(15);
-    this.add.text(this.skull.x, this.skull.y, "Wave", { fontFamily: UI_FONT, fontSize: "13px", color: "#f4f0e6" }).setOrigin(0.5).setDepth(16);
-    skull.on("pointerdown", () => {
+    const card = parchment(this, 250, 215, 360, 160).setDepth(18);
+    card.setVisible(false);
+    this.cardBg = card;
+    this.cardText = this.add.text(100, 160, "", { fontFamily: UI_FONT, fontSize: "16px", color: INK, wordWrap: { width: 300 } }).setDepth(19).setVisible(false);
+
+    iconButton(this, 1096, 26, 42, "btn-pause", () => this.togglePause(), 15);
+    this.speedButton = iconButton(this, 1156, 26, 42, "btn-fast", () => this.toggleSpeed(), 15);
+    iconButton(this, 1226, 26, 42, "btn-x", () => this.confirmQuit(), 15);
+
+    this.reinSlot = this.slotButton(54, 586, "slot-aid", () => this.arm("reinforcement"));
+    this.rainSlot = this.slotButton(142, 586, "slot-rain", () => this.arm("rain"));
+    this.reinLabel = this.slotLabel(54, 630);
+    this.rainLabel = this.slotLabel(142, 630);
+    if (this.sim.hero) {
+      this.slotButton(230, 586, "slot-burst", () => this.tryBurst());
+      this.burstLabel = this.slotLabel(230, 630);
+    }
+
+    const source = pick(this, "spawn-sign", "pad");
+    this.skullButton = this.add.image(this.skull.x, this.skull.y, source.key, source.frame).setDepth(15).setInteractive({ useHandCursor: true });
+    this.skullButton.setDisplaySize(72, 72);
+    this.skullButton.on("pointerdown", (pointer: Phaser.Input.Pointer, lx: number, ly: number, event: Phaser.Types.Input.EventData) => {
+      void pointer;
+      void lx;
+      void ly;
+      event.stopPropagation();
       this.previewOpen = !this.previewOpen;
       this.preview?.setVisible(this.previewOpen);
     });
-    this.preview = this.add.container(this.skull.x + 150, this.skull.y).setDepth(17).setVisible(false);
-    const bg = this.add.rectangle(0, 0, 240, 150, 0x1c2430, 0.96).setStrokeStyle(3, 0xe0b15a);
-    this.previewBody = this.add.text(-100, -60, "", { fontFamily: UI_FONT, fontSize: "14px", color: "#f4f0e6", wordWrap: { width: 210 } });
-    const call = woodButton(this, 0, 50, 150, 36, "Call", () => this.callWave(), 18);
+    const px = Phaser.Math.Clamp(this.skull.x + 170, 150, 1130);
+    const py = Phaser.Math.Clamp(this.skull.y + 10, 150, 560);
+    this.preview = this.add.container(px, py).setDepth(17).setVisible(false);
+    const bg = parchment(this, 0, 0, 270, 190);
+    this.previewBody = this.add.text(-112, -74, "", { fontFamily: UI_FONT, fontSize: "15px", color: INK, wordWrap: { width: 230 } });
+    const call = woodButton(this, 0, 62, 160, 40, "Call wave", () => this.callWave(), 18);
     this.preview.add([bg, this.previewBody, call]);
   }
 
-  private speedButton!: Phaser.GameObjects.Container;
-  private reinLabel!: Phaser.GameObjects.Text;
-  private rainLabel!: Phaser.GameObjects.Text;
+  private slotButton(x: number, y: number, frame: string, onClick: () => void): Phaser.GameObjects.Image {
+    const source = pick(this, frame, "pad");
+    const img = this.add.image(x, y, source.key, source.frame).setDepth(15).setInteractive({ useHandCursor: true });
+    img.setDisplaySize(68, 68);
+    img.on("pointerdown", (pointer: Phaser.Input.Pointer, lx: number, ly: number, event: Phaser.Types.Input.EventData) => {
+      void pointer;
+      void lx;
+      void ly;
+      event.stopPropagation();
+      onClick();
+    });
+    return img;
+  }
+
+  private slotLabel(x: number, y: number): Phaser.GameObjects.Text {
+    return this.add.text(x, y, "", {
+      fontFamily: UI_FONT,
+      fontSize: "13px",
+      color: CREAM,
+      backgroundColor: "#2a1a10",
+      padding: { x: 6, y: 2 },
+      align: "center",
+    }).setOrigin(0.5).setDepth(16);
+  }
+
+  // ------------------------------------------------------------------ input
 
   private onWorld(pointer: Phaser.Input.Pointer): void {
     const x = pointer.worldX;
@@ -230,7 +349,10 @@ export class BattleScene extends Phaser.Scene {
     if (y < 56 || y > 650) return;
     if (pointer.rightButtonDown()) {
       this.place = null;
-      if (this.sim.hero) this.sim.moveHero(x, y);
+      if (this.sim.hero) {
+        this.sim.moveHero(x, y);
+        this.ping(x, y);
+      }
       this.selection = null;
       return;
     }
@@ -248,12 +370,21 @@ export class BattleScene extends Phaser.Scene {
     }
     if (this.place === "rally" && this.selection?.kind === "tower") {
       if (!this.sim.setRally(this.selection.id, x, y)) this.toast("Rally on the road, near the barracks.");
-      else sfx.ui();
+      else {
+        sfx.ui();
+        this.ping(x, y);
+      }
       this.place = null;
       return;
     }
     this.selection = this.pick(x, y);
     if (this.selection?.kind === "hero") sfx.ui();
+  }
+
+  private ping(x: number, y: number): void {
+    const source = pick(this, "ring", "dot");
+    const ring = this.add.image(x, y, source.key, source.frame).setDepth(1.6).setScale(0.3).setAlpha(0.9);
+    this.tweens.add({ targets: ring, scale: 0.9, alpha: 0, duration: 420, onComplete: () => ring.destroy() });
   }
 
   private pick(x: number, y: number): Selection | null {
@@ -263,114 +394,231 @@ export class BattleScene extends Phaser.Scene {
       if (d <= radius) hits.push({ sel, d });
     };
     for (const enemy of this.sim.enemies) {
-      consider(enemy.x, enemy.y - (enemy.flying ? 26 : 0), enemy.boss ? 30 : 20, { kind: "enemy", id: enemy.id });
+      consider(enemy.x, enemy.y - (enemy.flying ? 26 : 12), enemy.boss ? 40 : 24, { kind: "enemy", id: enemy.id });
     }
-    if (this.sim.hero?.alive) consider(this.sim.hero.x, this.sim.hero.y, 22, { kind: "hero", id: "hero" });
-    for (const tower of this.sim.towers) consider(tower.x, tower.y, 32, { kind: "tower", id: tower.id });
+    if (this.sim.hero?.alive) consider(this.sim.hero.x, this.sim.hero.y - 14, 26, { kind: "hero", id: "hero" });
+    for (const tower of this.sim.towers) consider(tower.x, tower.y - 24, 44, { kind: "tower", id: tower.id });
     for (const slot of this.sim.level.slots) {
       if (this.sim.towerAt(slot.id)) continue;
-      consider(slot.x, slot.y, 30, { kind: "slot", id: slot.id });
+      consider(slot.x, slot.y, 34, { kind: "slot", id: slot.id });
     }
     hits.sort((a, b) => a.d - b.d);
     return hits[0]?.sel ?? null;
   }
 
+  // ----------------------------------------------------------------- bodies
+
   private syncBodies(): void {
     const seen = new Set<string>();
+    const t = this.clock;
     for (const enemy of this.sim.enemies) {
       seen.add(enemy.id);
-      const sprite = this.sprite(enemy.id, `foe-${enemy.defId}`, 4);
-      const bob = enemy.flying ? -26 : 0;
-      sprite.setPosition(enemy.x, enemy.y + bob);
-      sprite.setScale(enemy.boss ? 1.2 : 1);
-      sprite.setVisible(true);
+      const body = this.body(enemy.id, "enemy", FOE_FRAME[enemy.defId] ?? "sprout", `foe-${enemy.defId}`);
+      const img = body.img;
+      const phase = t * (enemy.flying ? 14 : 9) + body.seed;
+      if (enemy.x < body.x - 0.2) body.facing = -1;
+      else if (enemy.x > body.x + 0.2) body.facing = 1;
+      const moving = Math.abs(enemy.x - body.x) + Math.abs(enemy.y - body.y) > 0.05;
+      body.x = enemy.x;
+      body.y = enemy.y;
+      const hover = enemy.flying ? -28 + Math.sin(phase) * 4 : 0;
+      const hop = !enemy.flying && moving ? Math.abs(Math.sin(phase)) * 3 : 0;
+      img.setOrigin(0.5, enemy.flying ? 0.6 : 0.92);
+      img.setPosition(enemy.x, enemy.y + 6 + hover - hop);
+      const squash = moving && !enemy.flying ? 1 + Math.sin(phase * 2) * 0.04 : 1;
+      img.setScale(body.facing, squash);
+      img.setDepth(this.depthAt(enemy.y) + (enemy.flying ? 0.6 : 0));
+      img.setVisible(true);
+      img.setTint(enemy.poisonUntil > this.sim.time ? 0xa8ff8a : 0xffffff);
     }
     for (const actor of this.sim.actors) {
       seen.add(actor.id);
-      const sprite = this.sprite(actor.id, this.unitTexture(actor.kind, actor.ownerId), actor.kind === "elemental" ? 5 : 3);
-      sprite.setPosition(actor.x, actor.y);
-      sprite.setVisible(actor.alive);
-      sprite.setAlpha(actor.kind === "reinforcement" ? 0.95 : 1);
+      const [frame, fallback] = this.unitFrame(actor.kind, actor.ownerId);
+      const body = this.body(actor.id, "actor", frame, fallback);
+      const img = body.img;
+      if (actor.x > body.x + 0.2) body.facing = -1;
+      else if (actor.x < body.x - 0.2) body.facing = 1;
+      const moving = Math.abs(actor.x - body.x) + Math.abs(actor.y - body.y) > 0.05;
+      body.x = actor.x;
+      body.y = actor.y;
+      const phase = t * 10 + body.seed;
+      const fighting = actor.blockId !== null;
+      const hop = moving ? Math.abs(Math.sin(phase)) * 3 : 0;
+      const lunge = fighting ? Math.max(0, Math.sin(phase * 0.8)) * 3 : 0;
+      img.setOrigin(0.5, 0.92);
+      img.setPosition(actor.x + lunge * -body.facing, actor.y + 6 - hop);
+      img.setScale(body.facing, 1);
+      img.setDepth(this.depthAt(actor.y));
+      img.setVisible(actor.alive);
+      img.setAlpha(actor.kind === "reinforcement" ? 0.96 : 1);
     }
     if (this.sim.hero) {
       const hero = this.sim.hero;
       seen.add(hero.id);
-      const sprite = this.sprite(hero.id, "unit-hero", 6);
-      sprite.setPosition(hero.x, hero.y);
-      sprite.setVisible(hero.alive);
+      const body = this.body(hero.id, "hero", "hero", "unit-hero");
+      const img = body.img;
+      if (hero.x > body.x + 0.2) body.facing = -1;
+      else if (hero.x < body.x - 0.2) body.facing = 1;
+      const moving = Math.abs(hero.x - body.x) + Math.abs(hero.y - body.y) > 0.05;
+      body.x = hero.x;
+      body.y = hero.y;
+      const hop = moving ? Math.abs(Math.sin(t * 11 + body.seed)) * 4 : 0;
+      img.setOrigin(0.5, 0.92);
+      img.setPosition(hero.x, hero.y + 6 - hop);
+      img.setScale(body.facing, 1);
+      img.setDepth(this.depthAt(hero.y) + 0.05);
+      img.setVisible(hero.alive);
     }
     for (const tower of this.sim.towers) {
       seen.add(tower.id);
-      const sprite = this.sprite(tower.id, familyKey(tower.family), 2);
-      sprite.setPosition(tower.x, tower.y - 6);
-      sprite.setScale(1 + (tower.tier - 1) * 0.04);
+      const body = this.body(tower.id, "tower", towerFrame(tower.family, tower.tier, tower.branch), familyKey(tower.family));
+      const img = body.img;
+      img.setOrigin(0.5, 0.86);
+      img.setPosition(tower.x, tower.y + 12);
+      const recoil = tower.cooldown > 0 && tower.family !== "barracks" ? Math.max(0, 1 - tower.cooldown * 6) : 0;
+      img.setScale(1 + recoil * 0.06, 1 - recoil * 0.06);
+      img.setDepth(this.depthAt(tower.y));
+      body.x = tower.x;
+      body.y = tower.y;
     }
-    for (const [id, sprite] of this.bodies) {
-      if (!seen.has(id)) {
-        sprite.destroy();
-        this.bodies.delete(id);
+    for (const [id, body] of this.bodies) {
+      if (seen.has(id)) continue;
+      if (body.kind === "enemy") this.puff(body.x, body.y - 10, "puff", 0.6);
+      body.img.destroy();
+      this.bodies.delete(id);
+    }
+  }
+
+  private body(id: string, kind: Body["kind"], frame: string, fallback: string): Body {
+    let body = this.bodies.get(id);
+    const source = pick(this, frame, fallback);
+    if (!body) {
+      const img = this.add.image(0, 0, source.key, source.frame);
+      body = { img, kind, x: 0, y: 0, facing: 1, seed: Math.random() * Math.PI * 2 };
+      this.bodies.set(id, body);
+      if (kind !== "tower") {
+        img.setAlpha(0);
+        this.tweens.add({ targets: img, alpha: 1, duration: 220 });
+      } else {
+        img.setScale(0.6);
+        this.tweens.add({ targets: img, scale: 1, duration: 260, ease: "Back.easeOut" });
+        this.puff(0, 0, "puff", 0);
+      }
+    } else if (source.key === ATLAS ? body.img.frame.name !== frame : body.img.texture.key !== source.key) {
+      body.img.setTexture(source.key, source.frame);
+      if (kind === "tower") {
+        this.puff(body.x, body.y - 20, "sparkle", 0.9);
+        this.tweens.add({ targets: body.img, scaleX: { from: 1.15, to: 1 }, scaleY: { from: 0.85, to: 1 }, duration: 300, ease: "Back.easeOut" });
       }
     }
+    return body;
   }
 
-  private sprite(id: string, key: string, depth: number): Phaser.GameObjects.Image {
-    let sprite = this.bodies.get(id);
-    if (!sprite) {
-      sprite = this.add.image(0, 0, key).setDepth(depth);
-      this.bodies.set(id, sprite);
-    } else if (sprite.texture.key !== key && this.textures.exists(key)) {
-      sprite.setTexture(key);
-    }
-    return sprite;
-  }
-
-  private unitTexture(kind: string, ownerId: string): string {
-    if (kind === "elemental") return "unit-elemental";
-    if (kind === "reinforcement") return "unit-reinforcement";
+  private unitFrame(kind: string, ownerId: string): [string, string] {
+    if (kind === "elemental") return ["elemental", "unit-soldier"];
+    if (kind === "reinforcement") return ["reinforcement", "unit-soldier"];
     const tower = this.sim.towers.find((entry) => entry.id === ownerId);
-    if (tower?.branch === "a") return "unit-paladin";
-    if (tower?.branch === "b" && tower.family === "barracks") return "unit-axe";
-    return "unit-soldier";
+    if (tower?.branch === "a") return ["paladin", "unit-soldier"];
+    if (tower?.branch === "b" && tower.family === "barracks") return ["axe", "unit-soldier"];
+    return [`soldier${Math.min(3, tower?.tier ?? 1)}`, "unit-soldier"];
   }
+
+  private puff(x: number, y: number, frame: string, scale: number): void {
+    if (scale <= 0 || !hasFrame(this, frame)) return;
+    const img = this.add.image(x, y, ATLAS, frame).setDepth(this.depthAt(y) + 0.7).setScale(scale * 0.5).setAlpha(0.95);
+    this.tweens.add({ targets: img, scale: scale, alpha: 0, y: y - 14, duration: 520, ease: "Cubic.easeOut", onComplete: () => img.destroy() });
+  }
+
+  private burst(x: number, y: number, radius: number): void {
+    const frame = radius > 60 ? "boom-l" : "boom-s";
+    if (!hasFrame(this, frame)) return;
+    const img = this.add.image(x, y, ATLAS, frame).setDepth(this.depthAt(y) + 0.75);
+    const target = (radius * 2.2) / img.width;
+    img.setScale(target * 0.4).setAlpha(1);
+    this.tweens.add({ targets: img, scale: target, alpha: 0, duration: 380, ease: "Cubic.easeOut", onComplete: () => img.destroy() });
+    this.cameras.main.shake(radius > 60 ? 140 : 70, radius > 60 ? 0.004 : 0.0015);
+  }
+
+  // ---------------------------------------------------------------- overlay
 
   private drawOverlay(dt: number): void {
     const g = this.overlay;
     g.clear();
+    for (const enemy of this.sim.enemies) {
+      const r = enemy.boss ? 22 : 13;
+      g.fillStyle(0x000000, enemy.flying ? 0.14 : 0.24);
+      g.fillEllipse(enemy.x, enemy.y + 6, r * 2, r * 0.8);
+    }
+    for (const actor of this.sim.actors) {
+      if (!actor.alive) continue;
+      g.fillStyle(0x000000, 0.22);
+      g.fillEllipse(actor.x, actor.y + 6, 22, 9);
+    }
+    if (this.sim.hero?.alive) {
+      g.fillStyle(0x000000, 0.24);
+      g.fillEllipse(this.sim.hero.x, this.sim.hero.y + 6, 28, 11);
+    }
     const selectedTower = this.selection?.kind === "tower" ? this.sim.towers.find((tower) => tower.id === this.selection?.id) : undefined;
     if (selectedTower && selectedTower.family !== "barracks") {
       const stats = rangedStats(selectedTower.family as "archer" | "mage" | "artillery", selectedTower.tier, selectedTower.branch, this.sim.bonuses);
-      g.lineStyle(2, familyTint(selectedTower.family), 0.8);
+      g.fillStyle(familyTint(selectedTower.family), 0.12);
+      g.fillCircle(selectedTower.x, selectedTower.y, stats.range);
+      g.lineStyle(2, familyTint(selectedTower.family), 0.85);
       g.strokeCircle(selectedTower.x, selectedTower.y, stats.range);
     }
     if (this.place === "rally" && selectedTower) {
       g.lineStyle(2, 0x6aa6e0, 0.9);
       g.strokeCircle(selectedTower.x, selectedTower.y, 175);
     }
+    if (this.selection?.kind === "slot") {
+      const slot = this.sim.level.slots.find((entry) => entry.id === this.selection?.id);
+      if (slot) {
+        g.lineStyle(3, 0xf2c14e, 0.9);
+        g.strokeEllipse(slot.x, slot.y, 92, 62);
+      }
+    }
     for (const enemy of this.sim.enemies) {
-      const y = enemy.y - (enemy.flying ? 40 : 16) - (enemy.boss ? 18 : 0);
-      g.fillStyle(0x1c2430, 0.8);
-      g.fillRect(enemy.x - 16, y, 32, 5);
+      if (enemy.hp >= enemy.maxHp) continue;
+      const top = this.bodies.get(enemy.id)?.img.getBounds().top ?? enemy.y - 30;
+      const y = top - 7;
+      const w = enemy.boss ? 44 : 30;
+      g.fillStyle(0x2a1a10, 0.85);
+      g.fillRect(enemy.x - w / 2 - 1, y - 1, w + 2, 6);
       g.fillStyle(enemy.boss ? 0xc0392b : 0x9be07a, 1);
-      g.fillRect(enemy.x - 16, y, 32 * Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1), 5);
+      g.fillRect(enemy.x - w / 2, y, w * Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1), 4);
     }
     for (const actor of [...this.sim.actors, ...(this.sim.hero ? [this.sim.hero] : [])]) {
-      if (!actor.alive) continue;
-      g.fillStyle(0x1c2430, 0.7);
-      g.fillRect(actor.x - 12, actor.y - 22, 24, 4);
+      if (!actor.alive || actor.hp >= actor.maxHp) continue;
+      const top = this.bodies.get(actor.id)?.img.getBounds().top ?? actor.y - 26;
+      g.fillStyle(0x2a1a10, 0.8);
+      g.fillRect(actor.x - 13, top - 7, 26, 5);
       g.fillStyle(0x6aa6e0, 1);
-      g.fillRect(actor.x - 12, actor.y - 22, 24 * Phaser.Math.Clamp(actor.hp / actor.maxHp, 0, 1), 4);
+      g.fillRect(actor.x - 12, top - 6, 24 * Phaser.Math.Clamp(actor.hp / actor.maxHp, 0, 1), 3);
     }
-    this.bolts = this.bolts.filter((bolt) => {
-      bolt.life -= dt;
-      if (bolt.life <= 0) return false;
-      const t = 1 - bolt.life / 0.18;
-      g.lineStyle(2, boltColor(bolt.kind), 0.9);
-      g.lineBetween(bolt.x1, bolt.y1, Phaser.Math.Linear(bolt.x1, bolt.x2, t), Phaser.Math.Linear(bolt.y1, bolt.y2, t));
+    this.overlay.setDepth(1.5);
+
+    this.shots = this.shots.filter((shot) => {
+      shot.t += dt * this.speed;
+      const k = Math.min(1, shot.t / shot.dur);
+      const x = Phaser.Math.Linear(shot.x1, shot.x2, k);
+      const y = Phaser.Math.Linear(shot.y1, shot.y2, k) - Math.sin(k * Math.PI) * shot.arc;
+      shot.img.setPosition(x, y);
+      if (shot.spin) shot.img.rotation += shot.spin * dt;
+      shot.img.setDepth(this.depthAt(shot.y2) + 0.65);
+      if (k >= 1) {
+        shot.img.destroy();
+        if (shot.kind === "explosive") this.burst(shot.x2, shot.y2, 40);
+        else if (shot.kind === "magic") this.puff(shot.x2, shot.y2 - 10, "ring", 0.5);
+        else if (shot.kind === "poison") this.puff(shot.x2, shot.y2 - 10, "poison-cloud", 0.5);
+        else if (shot.kind === "electric") this.puff(shot.x2, shot.y2 - 10, "sparkle", 0.5);
+        return false;
+      }
       return true;
     });
+
     for (const floater of this.floaters) {
       floater.life -= dt;
-      floater.text.y -= 18 * dt;
+      floater.text.y -= 22 * dt;
       floater.text.setAlpha(Phaser.Math.Clamp(floater.life / 0.6, 0, 1));
     }
     this.floaters = this.floaters.filter((floater) => {
@@ -385,18 +633,64 @@ export class BattleScene extends Phaser.Scene {
         this.cardText.setVisible(false);
       }
     }
+    if (this.skullButton) {
+      const ready = this.sim.canCall() && !this.ended;
+      const pulse = ready ? 1 + Math.sin(this.time.now / 180) * 0.06 : 1;
+      this.skullButton.setDisplaySize(72 * pulse, 72 * pulse);
+      this.skullButton.setAlpha(ready ? 1 : 0.7);
+    }
   }
+
+  private launch(x1: number, y1: number, x2: number, y2: number, kind: string): void {
+    const frame = kind === "magic" ? "bolt" : kind === "explosive" ? "bomb" : kind === "electric" ? "spark" : kind === "poison" ? "poison" : kind === "true" ? "sparkle" : "arrow";
+    const source = pick(this, frame, "dot");
+    const img = this.add.image(x1, y1, source.key, source.frame).setDepth(7);
+    const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    let dur = 0.22;
+    let arc = 0;
+    let spin = 0;
+    if (frame === "arrow") {
+      img.setScale(0.6).setRotation(angle + 0.58);
+      dur = 0.16 + dist / 1400;
+    } else if (frame === "bolt") {
+      img.setScale(0.7).setRotation(angle);
+      dur = 0.18 + dist / 1200;
+    } else if (frame === "bomb") {
+      img.setScale(0.7);
+      dur = 0.45 + dist / 700;
+      arc = 40 + dist * 0.25;
+      spin = 4;
+    } else if (frame === "spark") {
+      img.setScale(0.6).setRotation(angle + 0.8);
+      dur = 0.08;
+    } else if (frame === "poison") {
+      img.setScale(0.6);
+      dur = 0.3;
+      arc = 24;
+    } else {
+      img.setScale(0.5);
+      dur = 0.15;
+    }
+    this.shots.push({ img, x1, y1, x2, y2, t: 0, dur, kind, arc, spin });
+  }
+
+  // -------------------------------------------------------------------- hud
 
   private syncHud(): void {
     const sim = this.sim;
-    this.livesText.setText(`Lives  ${sim.lives}`);
-    this.goldText.setText(`Gold  ${sim.gold}`);
+    this.livesText.setText(String(sim.lives));
+    this.goldText.setText(String(sim.gold));
     const shown = sim.waveStarted === 0 ? 0 : sim.waveStarted;
-    this.waveText.setText(`Wave  ${shown} / ${sim.level.waves.length}`);
+    this.waveText.setText(`${shown} / ${sim.level.waves.length}`);
     this.reinLabel.setText(this.powerLabel("Aid", sim.reinforcementUnlocked(), sim.reinCd, sim.level.reinforcementFromWave));
     this.rainLabel.setText(this.powerLabel("Rain", sim.rainUnlocked(), sim.rainCd, sim.level.rainFromWave));
-    const speedLabel = this.speedButton.list[1];
-    if (speedLabel instanceof Phaser.GameObjects.Text) speedLabel.setText(this.speed === 1 ? "1x" : "2x");
+    this.reinSlot.setAlpha(sim.reinforcementUnlocked() && sim.reinCd <= 0.05 ? 1 : 0.55);
+    this.rainSlot.setAlpha(sim.rainUnlocked() && sim.rainCd <= 0.05 ? 1 : 0.55);
+    if (this.burstLabel && sim.hero) {
+      this.burstLabel.setText(sim.hero.abilityCd > 0.05 ? `Burst  ${Math.ceil(sim.hero.abilityCd)}s` : "Burst  H");
+    }
+    this.speedButton?.setTint(this.speed === 2 ? 0xfff0a0 : 0xffffff);
     this.writeInfo();
     this.refreshSelection();
     if (this.previewOpen && this.previewBody) {
@@ -408,15 +702,15 @@ export class BattleScene extends Phaser.Scene {
           return `${group.pathName}: ${name} ×${group.count}`;
         });
         const bonus = sim.canCall() && sim.waveStarted > 0 ? `\nCall now  +${sim.earlyBonus()} gold` : sim.canCall() ? "\nCall the first wave" : "";
-        this.previewBody.setText(lines.join("\n") + bonus);
+        this.previewBody.setText(`Wave ${sim.waveStarted + 1}\n` + lines.join("\n") + bonus);
       }
     }
   }
 
   private powerLabel(name: string, unlocked: boolean, cd: number, fromWave: number): string {
-    if (!unlocked) return `${name}\nwave ${fromWave}`;
-    if (cd > 0.05) return `${name}\n${Math.ceil(cd)}s`;
-    return `${name}\nready`;
+    if (!unlocked) return `${name}  wave ${fromWave}`;
+    if (cd > 0.05) return `${name}  ${Math.ceil(cd)}s`;
+    return `${name}  ${name === "Aid" ? "1" : "2"}`;
   }
 
   private writeInfo(): void {
@@ -428,13 +722,13 @@ export class BattleScene extends Phaser.Scene {
     }
     if (sel.kind === "slot") {
       this.infoTitle.setText("Empty pad");
-      this.infoBody.setText("Choose a tower. Grey gold means you cannot afford it yet.");
+      this.infoBody.setText("Choose a tower. Faded icons cost more than you have.");
       return;
     }
     if (sel.kind === "hero" && this.sim.hero) {
       const hero = this.sim.hero;
       this.infoTitle.setText(`Warden Puff  ·  level ${hero.level}`);
-      this.infoBody.setText(`${Math.ceil(hero.hp)} / ${hero.maxHp}  ·  burst ${hero.abilityCd > 0 ? Math.ceil(hero.abilityCd) + "s" : "ready"}  ·  H or the button`);
+      this.infoBody.setText(`${Math.ceil(hero.hp)} / ${hero.maxHp}  ·  burst ${hero.abilityCd > 0 ? Math.ceil(hero.abilityCd) + "s" : "ready"}  ·  H or the slot`);
       return;
     }
     if (sel.kind === "enemy") {
@@ -474,41 +768,55 @@ export class BattleScene extends Phaser.Scene {
     if (!this.selection) return;
     if (this.selection.kind === "slot") this.buildRadial(this.selection.id);
     if (this.selection.kind === "tower" && tower) this.buildTowerActions(tower);
-    if (this.selection.kind === "hero") {
-      const burst = woodButton(this, 1100, 692, 180, 40, "Spore burst", () => this.tryBurst(), 17);
-      this.selectLayer.add(burst);
-    }
   }
 
   private buildRadial(slotId: string): void {
     const slot = this.sim.level.slots.find((entry) => entry.id === slotId);
     if (!slot || !this.selectLayer) return;
-    const flip = slot.y < 190 ? 1 : -1;
-    const offsets = [
-      { x: -84, y: 28 * flip },
-      { x: -30, y: 78 * flip },
-      { x: 30, y: 78 * flip },
-      { x: 84, y: 28 * flip },
-    ];
+    // Fan the four icons in an arc that opens away from the nearest screen edge.
+    let centre = slot.y < 210 ? 90 : -90;
+    if (slot.x < 160) centre = slot.y < 210 ? 45 : -45;
+    else if (slot.x > 1120) centre = slot.y < 210 ? 135 : -135;
+    const radius = 88;
     FAMILY_ORDER.forEach((family, index) => {
       const cost = buildCost(family);
-      const offset = offsets[index];
-      const x = Phaser.Math.Clamp(slot.x + offset.x, 40, 1240);
-      const y = Phaser.Math.Clamp(slot.y + offset.y, 70, 630);
-      const bg = this.add.circle(x, y, 30, familyTint(family)).setStrokeStyle(3, 0x1c2430).setInteractive({ useHandCursor: true });
-      bg.setAlpha(this.sim.gold >= cost ? 1 : 0.45);
-      const label = this.add.text(x, y - 6, FAMILY_SHORT[family], { fontFamily: UI_FONT, fontSize: "13px", color: "#1c2430" }).setOrigin(0.5);
-      const price = this.add.text(x, y + 10, String(cost), { fontFamily: UI_FONT, fontSize: "12px", color: "#1c2430" }).setOrigin(0.5);
-      bg.on("pointerdown", () => this.tryBuild(slotId, family));
-      bg.on("pointerover", () => this.infoBody.setText(familyBlurb(family)));
-      this.selectLayer?.add([bg, label, price]);
+      const angle = Phaser.Math.DegToRad(centre - 66 + index * 44);
+      const x = Phaser.Math.Clamp(slot.x + Math.cos(angle) * radius, 44, 1236);
+      const y = Phaser.Math.Clamp(slot.y + Math.sin(angle) * radius, 76, 600);
+      const affordable = this.sim.gold >= cost;
+      const source = pick(this, familyIcon(family), "pad");
+      const icon = this.add.image(x, y, source.key, source.frame).setInteractive({ useHandCursor: true });
+      icon.setDisplaySize(58, 58);
+      if (source.key !== ATLAS) icon.setTint(familyTint(family));
+      icon.setAlpha(affordable ? 1 : 0.45);
+      const price = this.add.text(x, y + 36, String(cost), {
+        fontFamily: UI_FONT,
+        fontSize: "13px",
+        color: affordable ? GOLD : "#d9b0a0",
+        backgroundColor: "#2a1a10",
+        padding: { x: 5, y: 1 },
+      }).setOrigin(0.5);
+      const label = source.key === ATLAS ? undefined : this.add.text(x, y, FAMILY_SHORT[family], { fontFamily: UI_FONT, fontSize: "12px", color: INK }).setOrigin(0.5);
+      icon.on("pointerdown", (pointer: Phaser.Input.Pointer, lx: number, ly: number, event: Phaser.Types.Input.EventData) => {
+        void pointer;
+        void lx;
+        void ly;
+        event.stopPropagation();
+        this.tryBuild(slotId, family);
+      });
+      icon.on("pointerover", () => {
+        icon.setDisplaySize(64, 64);
+        this.infoBody.setText(familyBlurb(family));
+      });
+      icon.on("pointerout", () => icon.setDisplaySize(58, 58));
+      this.selectLayer?.add(label ? [icon, label, price] : [icon, price]);
     });
   }
 
   private buildTowerActions(tower: TowerInst): void {
     if (!this.selectLayer) return;
     const refund = Math.floor(tower.spent * this.sim.refundRate());
-    const sell = woodButton(this, 1160, 692, 150, 40, `Sell ${refund}`, () => {
+    const sell = woodButton(this, 1170, 690, 150, 42, `Sell ${refund}`, () => {
       this.sim.sell(tower.id);
       this.selection = null;
       sfx.ui();
@@ -516,7 +824,7 @@ export class BattleScene extends Phaser.Scene {
     this.selectLayer.add(sell);
     const rallyable = tower.family === "barracks" || (tower.family === "mage" && tower.branch === "b");
     if (rallyable) {
-      const rally = woodButton(this, 860, 692, 120, 40, "Rally", () => {
+      const rally = woodButton(this, 850, 690, 120, 42, "Rally", () => {
         this.place = "rally";
         this.toast("Click the road near the troops.");
       }, 17);
@@ -524,7 +832,7 @@ export class BattleScene extends Phaser.Scene {
     }
     if (tower.tier < 3 && tower.tier < this.sim.level.maxTier) {
       const next = tower.family === "barracks" ? barracksStats((tower.tier + 1) as 2 | 3, null, this.sim.bonuses) : rangedStats(tower.family, (tower.tier + 1) as 2 | 3, null, this.sim.bonuses);
-      const upgrade = woodButton(this, 1000, 692, 170, 40, `Up ${next.cost}`, () => this.tryUpgrade(tower.id), 17);
+      const upgrade = woodButton(this, 1000, 690, 170, 42, `Upgrade ${next.cost}`, () => this.tryUpgrade(tower.id), 17);
       this.selectLayer.add(upgrade);
       return;
     }
@@ -532,11 +840,13 @@ export class BattleScene extends Phaser.Scene {
       const line = tower.family === "barracks" ? null : rangedLine(tower.family);
       const aName = tower.family === "barracks" ? "Paladin" : line?.branchA.name.split(" ")[0] ?? "A";
       const bName = tower.family === "barracks" ? "Axes" : line?.branchB.name.split(" ")[0] ?? "B";
-      const a = woodButton(this, 760, 692, 150, 40, `${aName} ${branchCost(tower.family, "a")}`, () => this.tryUpgrade(tower.id, "a"), 17);
-      const b = woodButton(this, 980, 692, 150, 40, `${bName} ${branchCost(tower.family, "b")}`, () => this.tryUpgrade(tower.id, "b"), 17);
+      const a = woodButton(this, 740, 690, 160, 42, `${aName} ${branchCost(tower.family, "a")}`, () => this.tryUpgrade(tower.id, "a"), 17);
+      const b = woodButton(this, 980, 690, 160, 42, `${bName} ${branchCost(tower.family, "b")}`, () => this.tryUpgrade(tower.id, "b"), 17);
       this.selectLayer.add([a, b]);
     }
   }
+
+  // ---------------------------------------------------------------- actions
 
   private tryBuild(slotId: string, family: Family): void {
     if (!this.sim.build(slotId, family)) this.toast(`Need ${buildCost(family)} gold.`);
@@ -567,7 +877,7 @@ export class BattleScene extends Phaser.Scene {
 
   private tryBurst(): void {
     if (!this.sim.hero) {
-      this.toast("The warden joins after Dewcap Road.");
+      this.toast("The warden joins after Dust Basin.");
       return;
     }
     if (!this.sim.castHeroBurst()) this.toast("Burst only fires with a foe in reach.");
@@ -589,10 +899,16 @@ export class BattleScene extends Phaser.Scene {
   private consumeNotices(): void {
     for (const notice of this.sim.drain()) {
       if (notice.type === "fire") {
-        this.bolts.push({ x1: notice.x1, y1: notice.y1, x2: notice.x2, y2: notice.y2, life: 0.18, kind: notice.kind });
+        this.launch(notice.x1, notice.y1 - 30, notice.x2, notice.y2 - 10, notice.kind);
         sfx.shot(notice.kind);
       } else if (notice.type === "float" && this.floaters.length < 24) {
-        const text = this.add.text(notice.x, notice.y, notice.text, { fontFamily: UI_FONT, fontSize: "14px", color: notice.color }).setOrigin(0.5).setDepth(9);
+        const text = this.add.text(notice.x, notice.y - 20, notice.text, {
+          fontFamily: UI_FONT,
+          fontSize: "15px",
+          color: notice.color,
+          stroke: "#2a1a10",
+          strokeThickness: 3,
+        }).setOrigin(0.5).setDepth(9);
         this.floaters.push({ text, life: 0.7 });
       } else if (notice.type === "new") {
         const foe = ENEMY_MAP[notice.enemyId];
@@ -608,14 +924,15 @@ export class BattleScene extends Phaser.Scene {
         this.cardLife = 7;
       } else if (notice.type === "wave") {
         this.bannerText.setText(`Wave ${notice.index}`);
-        this.bannerText.setAlpha(1);
-        this.tweens.add({ targets: this.bannerText, alpha: 0, delay: 700, duration: 500 });
+        this.bannerText.setAlpha(1).setScale(0.7);
+        this.tweens.add({ targets: this.bannerText, scale: 1, duration: 300, ease: "Back.easeOut" });
+        this.tweens.add({ targets: this.bannerText, alpha: 0, delay: 900, duration: 500 });
         if (this.sim.level.id === "dewcap" && notice.index === 3) this.toast("Reinforcements are free. Press 1, then click the road.");
         if (this.sim.level.id === "dewcap" && notice.index === 6) this.toast("Spore Rain is true damage. Press 2 and drop it on a crowd.");
       } else if (notice.type === "unlock") {
         this.toast(notice.power === "rain" ? "Spore Rain unlocked." : "Reinforcements unlocked.");
       } else if (notice.type === "boom") {
-        this.bolts.push({ x1: notice.x, y1: notice.y, x2: notice.x, y2: notice.y, life: 0.18, kind: "explosive" });
+        this.burst(notice.x, notice.y, notice.r);
       }
     }
   }
@@ -627,22 +944,56 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: this.toastText, alpha: 0, delay: 2400, duration: 400 });
   }
 
+  // ----------------------------------------------------------------- modals
+
+  private openModal(width: number, height: number): Phaser.GameObjects.Container {
+    const panel = this.add.container(640, 360).setDepth(30);
+    const dim = this.add.rectangle(0, 0, 1280, 720, 0x100804, 0.45).setInteractive();
+    const bg = parchment(this, 0, 0, width, height);
+    panel.add([dim, bg]);
+    panel.setScale(0.85);
+    this.tweens.add({ targets: panel, scale: 1, duration: 220, ease: "Back.easeOut" });
+    return panel;
+  }
+
+  private closeModal(): void {
+    this.modal?.destroy(true);
+    this.modal = undefined;
+    this.paused = false;
+  }
+
   private togglePause(): void {
     if (this.ended) return;
     if (this.modal) {
-      this.modal.destroy(true);
-      this.modal = undefined;
-      this.paused = false;
+      this.closeModal();
       return;
     }
     this.paused = true;
-    const panel = this.add.container(640, 360).setDepth(30);
-    const bg = this.add.rectangle(0, 0, 420, 280, 0x1c2430, 0.96).setStrokeStyle(4, 0xe0b15a);
-    const title = this.add.text(0, -90, "Paused", { fontFamily: "Georgia, serif", fontSize: "36px", color: "#f2c14e" }).setOrigin(0.5);
-    const resume = woodButton(this, 0, -20, 200, 46, "Resume", () => this.togglePause(), 31);
-    const retry = woodButton(this, 0, 40, 200, 46, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31);
-    const map = woodButton(this, 0, 100, 200, 46, "Map", () => this.scene.start("map"), 31);
-    panel.add([bg, title, resume, retry, map]);
+    const panel = this.openModal(420, 320);
+    const title = this.add.text(0, -110, "Paused", { fontFamily: DISPLAY_FONT, fontSize: "36px", color: INK }).setOrigin(0.5);
+    const resume = woodButton(this, 0, -30, 220, 48, "Resume", () => this.togglePause(), 31);
+    const retry = woodButton(this, 0, 34, 220, 48, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31);
+    const map = woodButton(this, 0, 98, 220, 48, "Map", () => this.scene.start("map"), 31);
+    panel.add([title, resume, retry, map]);
+    this.modal = panel;
+  }
+
+  private confirmQuit(): void {
+    if (this.ended) {
+      this.scene.start("map");
+      return;
+    }
+    if (this.modal) {
+      this.closeModal();
+      return;
+    }
+    this.paused = true;
+    const panel = this.openModal(440, 240);
+    const title = this.add.text(0, -70, "Leave the march?", { fontFamily: DISPLAY_FONT, fontSize: "28px", color: INK }).setOrigin(0.5);
+    const note = this.add.text(0, -28, "Progress on this road is lost.", { fontFamily: UI_FONT, fontSize: "16px", color: INK_SOFT }).setOrigin(0.5);
+    const stay = woodButton(this, -95, 50, 160, 46, "Stay", () => this.closeModal(), 31);
+    const leave = woodButton(this, 95, 50, 160, 46, "Leave", () => this.scene.start("map"), 31);
+    panel.add([title, note, stay, leave]);
     this.modal = panel;
   }
 
@@ -659,39 +1010,40 @@ export class BattleScene extends Phaser.Scene {
       commitSave(applyClear(loadSave(), this.sim.level.id, stars));
       sfx.win();
     }
-    const panel = this.add.container(640, 360).setDepth(30);
-    const bg = this.add.rectangle(0, 0, 520, 320, 0x1c2430, 0.97).setStrokeStyle(4, 0xe0b15a);
-    const title = this.add.text(0, -110, victory ? "The road holds" : "The road is lost", {
-      fontFamily: "Georgia, serif",
-      fontSize: "32px",
-      color: victory ? "#f2c14e" : "#ff8d8d",
+    const panel = this.openModal(540, 360);
+    const title = this.add.text(0, -130, victory ? "The road holds" : "The road is lost", {
+      fontFamily: DISPLAY_FONT,
+      fontSize: "34px",
+      color: victory ? INK : "#8c2f3b",
     }).setOrigin(0.5);
-    const detail = this.add.text(0, -50, victory ? `${"★".repeat(stars)}${"☆".repeat(3 - stars)}    ${this.sim.lives} lives left` : "The march reached the hold.", {
+    panel.add(title);
+    if (victory) {
+      for (let i = 0; i < 3; i++) {
+        const star = art(this, -70 + i * 70, -62, "ic-star", "dot").setDisplaySize(56, 56);
+        star.setAlpha(i < stars ? 1 : 0.3);
+        if (i < stars) {
+          star.setScale(0);
+          this.tweens.add({ targets: star, displayWidth: 56, displayHeight: 56, delay: 250 + i * 200, duration: 320, ease: "Back.easeOut" });
+        }
+        panel.add(star);
+      }
+    }
+    const detail = this.add.text(0, -8, victory ? `${this.sim.lives} lives left` : "The march reached the hold.", {
       fontFamily: UI_FONT,
       fontSize: "18px",
-      color: "#f4f0e6",
+      color: INK_SOFT,
     }).setOrigin(0.5);
+    panel.add(detail);
     const nextLevel = LEVELS.find((level) => level.index === this.sim.level.index + 1);
-    const buttons: Phaser.GameObjects.GameObject[] = [bg, title, detail];
-    buttons.push(woodButton(this, victory && nextLevel ? -120 : 0, 40, 160, 46, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31));
-    buttons.push(woodButton(this, victory && nextLevel ? 80 : 0, 110, 160, 46, "Map", () => this.scene.start("map"), 31));
-    if (victory && nextLevel) {
-      buttons.push(woodButton(this, 100, 40, 180, 46, "Next march", () => this.scene.start("battle", { levelId: nextLevel.id }), 31));
+    const showNext = victory && !!nextLevel;
+    panel.add(woodButton(this, showNext ? -150 : -90, 60, 150, 46, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31));
+    panel.add(woodButton(this, showNext ? 0 : 90, 60, 150, 46, "Map", () => this.scene.start("map"), 31));
+    if (showNext && nextLevel) {
+      panel.add(woodButton(this, 150, 60, 160, 46, "Next march", () => this.scene.start("battle", { levelId: nextLevel.id }), 31));
     }
     if (victory && this.sim.level.id === "dewcap") {
-      const note = this.add.text(0, 160, "Warden Puff will march with you.", { fontFamily: UI_FONT, fontSize: "16px", color: "#e0b15a" }).setOrigin(0.5);
-      buttons.push(note);
+      panel.add(this.add.text(0, 120, "Warden Puff will march with you.", { fontFamily: UI_FONT, fontSize: "16px", color: INK_SOFT }).setOrigin(0.5));
     }
-    panel.add(buttons);
     this.modal = panel;
   }
-}
-
-function boltColor(kind: string): number {
-  if (kind === "magic") return 0xd7a6ff;
-  if (kind === "explosive") return 0xffb15a;
-  if (kind === "electric") return 0x9fd7ff;
-  if (kind === "poison") return 0x9be07a;
-  if (kind === "true") return 0xffe08a;
-  return 0xf4f0e6;
 }

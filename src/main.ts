@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { BattleScene } from "./game/BattleScene";
+import { BootScene } from "./game/BootScene";
 import { MapScene } from "./game/MapScene";
 import { MenuScene } from "./game/MenuScene";
 
@@ -13,5 +14,6 @@ new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [MenuScene, MapScene, BattleScene],
+  render: { antialias: true, roundPixels: false },
+  scene: [BootScene, MenuScene, MapScene, BattleScene],
 });

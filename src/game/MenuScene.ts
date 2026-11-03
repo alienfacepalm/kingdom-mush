@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { UI_FONT, paintTextures, woodButton } from "./draw";
+import { CREAM, DISPLAY_FONT, INK, INK_SOFT, UI_FONT, paintTextures, parchment, woodButton } from "./draw";
 import { sfx } from "./sfx";
 
 export class MenuScene extends Phaser.Scene {
@@ -9,84 +9,84 @@ export class MenuScene extends Phaser.Scene {
 
   create(): void {
     paintTextures(this);
-    const g = this.add.graphics();
-    g.fillStyle(0x8ec8ef);
-    g.fillRect(0, 0, 1280, 420);
-    g.fillStyle(0x3f8f4a);
-    g.fillRect(0, 420, 1280, 300);
-    g.fillStyle(0xc2a15a);
-    g.fillEllipse(180, 520, 220, 70);
-    g.fillStyle(0x7dce6a);
-    g.fillEllipse(180, 470, 160, 70);
-    g.fillStyle(0xe07a4a);
-    g.fillEllipse(1040, 500, 180, 80);
-    g.fillStyle(0x6b4a32);
-    g.fillRect(1000, 500, 30, 80);
-    g.fillStyle(0x2f4d73);
-    g.fillRoundedRect(150, 430, 70, 80, 8);
-    g.fillStyle(0xe7b45a);
-    g.fillEllipse(185, 420, 80, 36);
+    if (this.textures.exists("bg-title")) {
+      this.add.image(640, 360, "bg-title");
+    } else {
+      const g = this.add.graphics();
+      g.fillStyle(0x8ec8ef);
+      g.fillRect(0, 0, 1280, 420);
+      g.fillStyle(0x3f8f4a);
+      g.fillRect(0, 420, 1280, 300);
+    }
 
-    this.add.text(640, 150, "CAPKEEP", {
-      fontFamily: "Georgia, serif",
-      fontSize: "92px",
-      color: "#f2c14e",
-      stroke: "#3a2a1a",
-      strokeThickness: 10,
+    const shadow = this.add.text(646, 136, "CAPKEEP", {
+      fontFamily: DISPLAY_FONT,
+      fontSize: "104px",
+      color: "#2a1a10",
+    }).setOrigin(0.5).setAlpha(0.45);
+    const title = this.add.text(640, 130, "CAPKEEP", {
+      fontFamily: DISPLAY_FONT,
+      fontSize: "104px",
+      color: "#f6cf5a",
+      stroke: "#4a2a10",
+      strokeThickness: 12,
     }).setOrigin(0.5);
-    this.add.text(640, 230, "Hold the road.", {
-      fontFamily: "Georgia, serif",
+    this.add.text(640, 206, "Hold the road.", {
+      fontFamily: DISPLAY_FONT,
       fontSize: "28px",
-      color: "#3a2a1a",
+      color: CREAM,
+      stroke: "#2a1a10",
+      strokeThickness: 6,
     }).setOrigin(0.5);
+    this.tweens.add({ targets: [title, shadow], y: "-=6", duration: 1800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
 
-    woodButton(this, 640, 340, 240, 64, "Start", () => {
+    woodButton(this, 640, 330, 260, 66, "Start", () => {
       sfx.unlock();
       sfx.ui();
       this.scene.start("map");
     });
-    woodButton(this, 640, 420, 240, 52, "Field notes", () => this.showNotes());
-    const mute = this.add.text(1180, 40, sfx.muted ? "Sound off" : "Sound on", {
-      fontFamily: UI_FONT,
-      fontSize: "16px",
-      color: "#f4f0e6",
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    mute.on("pointerdown", () => {
+    woodButton(this, 640, 408, 260, 52, "Field notes", () => this.showNotes());
+    const mute = woodButton(this, 1180, 40, 150, 40, sfx.muted ? "Sound off" : "Sound on", () => {
       sfx.unlock();
       const muted = sfx.toggle();
-      mute.setText(muted ? "Sound off" : "Sound on");
+      const label = mute.list[1];
+      if (label instanceof Phaser.GameObjects.Text) label.setText(muted ? "Sound off" : "Sound on");
     });
 
-    this.add.text(640, 680, "An original tower defense. Not affiliated with Ironhide Game Studio.", {
+    this.add.text(640, 696, "An original tower defense. Not affiliated with Ironhide Game Studio.", {
       fontFamily: UI_FONT,
       fontSize: "14px",
-      color: "#e7f6ea",
+      color: CREAM,
+      stroke: "#2a1a10",
+      strokeThickness: 3,
     }).setOrigin(0.5);
   }
 
   private showNotes(): void {
     if (this.children.getByName("notes")) return;
     const panel = this.add.container(640, 360).setName("notes").setDepth(30);
-    const bg = this.add.rectangle(0, 0, 760, 460, 0x1c2430, 0.96).setStrokeStyle(4, 0xe0b15a);
+    const dim = this.add.rectangle(0, 0, 1280, 720, 0x100804, 0.45).setInteractive();
+    const bg = parchment(this, 0, 0, 780, 500);
+    const title = this.add.text(0, -210, "Field notes", { fontFamily: DISPLAY_FONT, fontSize: "30px", color: INK }).setOrigin(0.5);
     const body = [
       "Build only on the stone pads.",
       "Barracks put soldiers on the road. Each one stops a single ground foe.",
       "Archers are fast and can hit fliers. Magic ignores armor but misses the sky.",
       "Mortars aim at the ground. The blast still catches anything in it.",
-      "Call the next wave early for bonus gold. The skull shows what is coming.",
+      "Call the next wave early for bonus gold. The skull sign shows what is coming.",
       "Sell a tower for the full cost before wave 1, or 60% after.",
       "At tier 3, the fourth upgrade is a choice of two specialties.",
       "1 reinforcements, 2 spore rain, right-click moves Warden Puff.",
       "Space pauses. F changes speed. Stars from clears buy permanent studies.",
-    ].join("\n\n");
-    const text = this.add.text(-340, -190, body, {
+    ].join("\n");
+    const text = this.add.text(-340, -170, body, {
       fontFamily: UI_FONT,
-      fontSize: "18px",
-      color: "#f4f0e6",
+      fontSize: "17px",
+      color: INK_SOFT,
       wordWrap: { width: 680 },
-      lineSpacing: 2,
+      lineSpacing: 9,
     });
-    const close = woodButton(this, 0, 190, 160, 44, "Close", () => panel.destroy(true), 31);
-    panel.add([bg, text, close]);
+    const close = woodButton(this, 0, 210, 170, 44, "Close", () => panel.destroy(true), 31);
+    panel.add([dim, bg, title, text, close]);
   }
 }

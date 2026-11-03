@@ -350,7 +350,7 @@ export class Sim {
     const hp = REINFORCEMENT.hp + this.bonuses.reinforcementHp;
     const duration = REINFORCEMENT.duration + this.bonuses.reinforcementDuration;
     const normal = this.normalAt(road.point.x, road.point.y);
-    for (const offset of [-12, 12]) {
+    for (const offset of [-18, 18]) {
       const actor = this.blankActor("reinforcement", "spell", hp);
       actor.armor = REINFORCEMENT.armor;
       actor.dmgMin = REINFORCEMENT.min;
@@ -868,7 +868,9 @@ export class Sim {
       this.actors.push(actor);
     }
     existing.forEach((actor, index) => {
-      const offset = (index - (stats.soldiers - 1) / 2) * 16;
+      const slot = index - (stats.soldiers - 1) / 2;
+      const offset = slot * 22;
+      const lead = slot === 0 ? -10 : 8;
       actor.maxHp = stats.hp;
       actor.hp = actor.maxHp;
       actor.alive = true;
@@ -883,8 +885,8 @@ export class Sim {
       actor.aura = stats.aura;
       actor.rx = tower.rx;
       actor.ry = tower.ry;
-      actor.ox = normal.x * offset;
-      actor.oy = normal.y * offset;
+      actor.ox = normal.x * offset - normal.y * lead;
+      actor.oy = normal.y * offset + normal.x * lead;
       actor.x = actor.rx + actor.ox;
       actor.y = actor.ry + actor.oy;
       actor.leash = 140;
@@ -917,11 +919,13 @@ export class Sim {
     const normal = this.normalAt(tower.rx, tower.ry);
     const owned = this.actors.filter((actor) => actor.ownerId === tower.id);
     owned.forEach((actor, index) => {
-      const offset = (index - (owned.length - 1) / 2) * 16;
+      const slot = index - (owned.length - 1) / 2;
+      const offset = slot * 22;
+      const lead = slot === 0 ? -10 : 8;
       actor.rx = tower.rx;
       actor.ry = tower.ry;
-      actor.ox = normal.x * offset;
-      actor.oy = normal.y * offset;
+      actor.ox = normal.x * offset - normal.y * lead;
+      actor.oy = normal.y * offset + normal.x * lead;
     });
   }
 
