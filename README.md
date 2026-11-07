@@ -1,10 +1,10 @@
-# Capkeep
+# CapKeep
 
-Capkeep is an original tower defense about holding a road through a mushroom kingdom. Fixed build pads, barracks that stop the march, and a split between armor and magic. It is a genre study of that kind of game, with its own art, names, and numbers.
+CapKeep is an original tower defense about holding a road through a mushroom kingdom. Fixed build pads, barracks that stop the march, and a split between armor and magic. It is a genre study of that kind of game, with its own art, names, and numbers.
 
 ## Play
 
-https://alienfacepalm.github.io/kingdom-mush/
+https://alienfacepalm.github.io/CapKeep/
 
 ```bash
 pnpm install
@@ -17,9 +17,10 @@ Open the URL Vite prints. `pnpm test` runs the combat rules and a scripted balan
 
 - Click a stone pad, then Bow, Den, Hex, or Bomb.
 - Click a tower to upgrade, sell, or set a barracks rally on the road.
-- The Wave button shows the next march. Call it early for bonus gold.
+- The skull sign shows the next march. In Auto mode (default) a prep countdown calls waves for you; call early for bonus gold, or switch to Manual in the brief or the top bar. Pause freezes the clock.
+- Before each march, pick a mode (Campaign, Heroic, Iron, Endless), a difficulty (Casual, Normal, Veteran), and — on warden marches — one of three wardens.
 - `1` then click the road for reinforcements. `2` then click a crowd for Spore Rain.
-- Right-click sends Warden Puff. `H` fires the burst when a foe is in reach.
+- Right-click sends your warden. `H` fires the burst when a foe is in reach.
 - Space pauses. `F` toggles 1x and 2x.
 
 Stars from cleared marches buy studies on the map. Three stars means 16 or more lives left. Two stars means 8 or more.

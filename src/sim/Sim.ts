@@ -147,8 +147,13 @@ export class Sim {
   countingDown = false;
   /** When true, prep and between-wave clocks call the next wave at zero. */
   autoWaves = true;
+  /** Scene pause, modeled in the sim so orders and time both freeze. */
+  paused = false;
   reinCd = 0;
   rainCd = 0;
+  private savedPrep = 0;
+  readonly heroDef: typeof HERO;
+  readonly heroId: string;
 
   /** Seconds of build time before wave 1 when auto marches are on. */
   static readonly PREP_SECONDS = 20;
@@ -164,11 +169,13 @@ export class Sim {
   private seq = 1;
   private announced = { reinforcement: false, rain: false };
 
-  constructor(level: LevelDef, bonuses: Bonuses, rng: () => number, enemyDefs: Record<string, EnemyDef> = ENEMY_MAP) {
+  constructor(level: LevelDef, bonuses: Bonuses, rng: () => number, enemyDefs: Record<string, EnemyDef> = ENEMY_MAP, heroDef: typeof HERO = HERO, heroId = "puff") {
     this.level = level;
     this.bonuses = bonuses;
     this.rng = rng;
     this.enemyDefs = enemyDefs;
+    this.heroDef = heroDef;
+    this.heroId = heroId;
     this.gold = level.startGold;
     this.lives = level.lives;
     for (const path of level.paths) this.polys.set(path.id, buildPoly(path.points));
@@ -207,6 +214,12 @@ export class Sim {
   setAutoWaves(on: boolean): void {
     this.autoWaves = on;
     if (!on) this.disarmAutoClock();
+    // Re-enabling Auto before wave 1 resumes the prep clock where it stopped
+    // (a fresh full clock only if none was armed). Prep pays no early bonus.
+    else if (this.phase === "prep" && this.waveStarted === 0 && !this.countingDown) {
+      this.armPrep(this.savedPrep > 0 ? this.savedPrep : Sim.PREP_SECONDS);
+      this.savedPrep = 0;
+    }
   }
 
   /** Begin the pre-wave-1 build clock (used when auto marches are on). Call from battle start only. */
@@ -220,6 +233,7 @@ export class Sim {
   private disarmAutoClock(): void {
     if (!this.countingDown) return;
     if (this.waveStarted === 0) {
+      this.savedPrep = this.nextWaveIn;
       this.countingDown = false;
       this.nextWaveIn = 0;
       return;
@@ -418,20 +432,20 @@ export class Sim {
 
   castHeroBurst(): boolean {
     if (!this.hero || !this.hero.alive || !this.acceptsOrders() || this.hero.abilityCd > 0) return false;
-    const victims = this.enemies.filter((enemy) => enemy.alive && dist(enemy, this.hero!) <= HERO.abilityRadius);
+    const victims = this.enemies.filter((enemy) => enemy.alive && dist(enemy, this.hero!) <= this.heroDef.abilityRadius);
     if (victims.length === 0) return false;
-    this.hero.abilityCd = HERO.abilityCd;
-    const amount = HERO.abilityDamage + (this.hero.level - 1) * 4;
+    this.hero.abilityCd = this.heroDef.abilityCd;
+    const amount = this.heroDef.abilityDamage + (this.hero.level - 1) * 4;
     for (const enemy of victims) {
       this.hurt(enemy, amount, "true");
-      if (enemy.alive) enemy.slowUntil = this.time + HERO.abilitySlow;
+      if (enemy.alive) enemy.slowUntil = this.time + this.heroDef.abilitySlow;
     }
-    this.push({ type: "boom", x: this.hero.x, y: this.hero.y, r: HERO.abilityRadius });
+    this.push({ type: "boom", x: this.hero.x, y: this.hero.y, r: this.heroDef.abilityRadius });
     return true;
   }
 
   step(dt: number): void {
-    if (this.isOver()) return;
+    if (this.paused || this.isOver()) return;
     this.acc += Math.min(Math.max(dt, 0), 0.1);
     if (this.acc > 1) this.acc = 1;
     let guard = 0;
@@ -993,13 +1007,13 @@ export class Sim {
   }
 
   private makeHero(): ActorInst {
-    const hero = this.blankActor("hero", "hero", HERO.hp);
-    hero.armor = HERO.armor;
-    hero.dmgMin = HERO.min;
-    hero.dmgMax = HERO.max;
-    hero.interval = HERO.interval;
-    hero.regen = HERO.regen;
-    hero.speed = HERO.speed;
+    const hero = this.blankActor("hero", "hero", this.heroDef.hp);
+    hero.armor = this.heroDef.armor;
+    hero.dmgMin = this.heroDef.min;
+    hero.dmgMax = this.heroDef.max;
+    hero.interval = this.heroDef.interval;
+    hero.regen = this.heroDef.regen;
+    hero.speed = this.heroDef.speed;
     hero.leash = 64;
     hero.x = this.level.heroStart.x;
     hero.y = this.level.heroStart.y;
@@ -1087,21 +1101,6 @@ export class Sim {
     return best;
   }
 
-  private nearestEnemy(x: number, y: number, range: number, air: boolean): EnemyInst | null {
-    let best: EnemyInst | null = null;
-    let bestDist = range;
-    for (const enemy of this.enemies) {
-      if (!enemy.alive) continue;
-      if (enemy.flying && !air) continue;
-      const gap = dist(enemy, { x, y });
-      if (gap <= bestDist) {
-        bestDist = gap;
-        best = enemy;
-      }
-    }
-    return best;
-  }
-
   private nearestFlyer(x: number, y: number, range: number): EnemyInst | null {
     let best: EnemyInst | null = null;
     let bestDist = range;
@@ -1158,7 +1157,7 @@ export class Sim {
   }
 
   private acceptsOrders(): boolean {
-    return this.phase === "prep" || this.phase === "combat";
+    return !this.paused && (this.phase === "prep" || this.phase === "combat");
   }
 
   private push(notice: Notice): void {

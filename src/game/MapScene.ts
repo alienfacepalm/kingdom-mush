@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { META_UPGRADES } from "../content/catalog";
 import { LEVELS, isUnlocked } from "../content/levels";
-import { buyUpgrade, commitSave, loadSave, resetUpgrades, setAutoWaves, starsAvailable } from "../content/save";
+import { buyUpgrade, commitSave, loadSave, resetUpgrades, setAutoWaves, setHero, starsAvailable } from "../content/save";
+import { DIFFICULTIES, HEROES, MODES, difficultyById, heroById, modeById, type DifficultyId, type ModeId } from "../content/variants";
 import { Sim } from "../sim/Sim";
 import { CREAM, DISPLAY_FONT, GOLD, INK, INK_SOFT, UI_FONT, art, hasFrame, paintTextures, parchment, plank, woodButton } from "./draw";
 import { sfx } from "./sfx";
@@ -97,46 +98,79 @@ export class MapScene extends Phaser.Scene {
     const level = LEVELS.find((entry) => entry.id === levelId);
     if (!level || this.children.getByName("brief")) return;
     sfx.ui();
-    let auto = loadSave().autoWaves;
+    const save0 = loadSave();
+    let auto = save0.autoWaves;
+    let modeId: ModeId = "campaign";
+    let difficultyId: DifficultyId = "normal";
+    let heroId = save0.heroId;
     const panel = this.add.container(640, 360).setName("brief").setDepth(20);
     const dim = this.add.rectangle(0, 0, 1280, 720, 0x100804, 0.45).setInteractive();
-    const bg = parchment(this, 0, 0, 660, 380);
-    const title = this.add.text(0, -148, level.name, { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
-    const body = this.add.text(-280, -100, level.briefing, {
+    const bg = parchment(this, 0, 0, 700, 500);
+    const title = this.add.text(0, -205, level.name, { fontFamily: DISPLAY_FONT, fontSize: "32px", color: INK }).setOrigin(0.5);
+    const body = this.add.text(-290, -160, level.briefing, {
       fontFamily: UI_FONT,
-      fontSize: "18px",
+      fontSize: "17px",
       color: INK_SOFT,
-      wordWrap: { width: 560 },
+      wordWrap: { width: 580 },
     });
-    const meta = this.add.text(-280, 24, `Lives 20   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
+    const meta = this.add.text(-290, -52, `Lives ${level.lives}   ·   ${level.startGold} gold   ·   ${level.waves.length} waves`, {
       fontFamily: UI_FONT,
       fontSize: "16px",
       color: INK,
     });
-    const modeHint = this.add.text(0, 58, "", { fontFamily: UI_FONT, fontSize: "15px", color: INK_SOFT }).setOrigin(0.5);
-    const paintMode = () => {
-      modeHint.setText(
-        auto
-          ? `Auto: ${Sim.PREP_SECONDS}s prep, then waves call themselves. Pause freezes the clock.`
-          : "Manual: call each wave yourself when you are ready.",
-      );
+    const hint = this.add.text(0, 148, "", { fontFamily: UI_FONT, fontSize: "14px", color: INK_SOFT, align: "center", wordWrap: { width: 600 } }).setOrigin(0.5, 0);
+    const setLabel = (btn: Phaser.GameObjects.Container, text: string) => {
+      const label = btn.list[1];
+      if (label instanceof Phaser.GameObjects.Text) label.setText(text);
     };
-    paintMode();
-    const mode = woodButton(this, -190, 108, 180, 44, auto ? "Auto on" : "Manual", () => {
-      auto = !auto;
-      commitSave(setAutoWaves(loadSave(), auto));
-      const label = mode.list[1];
-      if (label instanceof Phaser.GameObjects.Text) label.setText(auto ? "Auto on" : "Manual");
-      paintMode();
+    const paint = () => {
+      const m = modeById(modeId);
+      const d = difficultyById(difficultyId);
+      const lines = [`${m.name} — ${m.blurb}`, `${d.name} — ${d.blurb}`];
+      if (level.hero) lines.push(`${heroById(heroId).name} — ${heroById(heroId).blurb}`);
+      lines.push(m.forceManual ? "Iron marches are Manual." : auto ? `Auto: ${Sim.PREP_SECONDS}s prep, waves call themselves. Pause freezes the clock.` : "Manual: call each wave yourself.");
+      hint.setText(lines.join("\n"));
+    };
+    const cycle = <T extends string>(list: readonly { id: T }[], current: T): T => {
+      const i = list.findIndex((e) => e.id === current);
+      return list[(i + 1) % list.length].id;
+    };
+    const modeBtn = woodButton(this, -215, 18, 200, 42, "Campaign", () => {
+      modeId = cycle(MODES, modeId);
+      setLabel(modeBtn, modeById(modeId).name);
+      paint();
       sfx.ui();
     }, 21);
-    const go = woodButton(this, 20, 108, 180, 48, "To battle", () => {
-      sfx.unlock();
-      this.scene.start("battle", { levelId });
+    const diffBtn = woodButton(this, 0, 18, 200, 42, "Normal", () => {
+      difficultyId = cycle(DIFFICULTIES, difficultyId);
+      setLabel(diffBtn, difficultyById(difficultyId).name);
+      paint();
+      sfx.ui();
     }, 21);
-    const back = woodButton(this, 200, 108, 120, 44, "Back", () => panel.destroy(true), 21);
-    panel.add([dim, bg, title, body, meta, modeHint, mode, go, back]);
-    panel.setScale(0.85);
+    const autoBtn = woodButton(this, 215, 18, 200, 42, auto ? "Auto on" : "Manual", () => {
+      auto = !auto;
+      commitSave(setAutoWaves(loadSave(), auto));
+      setLabel(autoBtn, auto ? "Auto on" : "Manual");
+      paint();
+      sfx.ui();
+    }, 21);
+    const heroBtn = woodButton(this, -150, 72, 260, 42, heroById(heroId).name, () => {
+      if (!level.hero) return;
+      heroId = cycle(HEROES, heroId);
+      commitSave(setHero(loadSave(), heroId));
+      setLabel(heroBtn, heroById(heroId).name);
+      paint();
+      sfx.ui();
+    }, 21);
+    if (!level.hero) heroBtn.setAlpha(0.35).disableInteractive();
+    const go = woodButton(this, 95, 72, 200, 48, "To battle", () => {
+      sfx.unlock();
+      this.scene.start("battle", { levelId, modeId, difficultyId, heroId });
+    }, 21);
+    const back = woodButton(this, 275, 72, 100, 42, "Back", () => panel.destroy(true), 21);
+    paint();
+    panel.add([dim, bg, title, body, meta, modeBtn, diffBtn, autoBtn, heroBtn, go, back, hint]);
+    panel.setScale(0.9);
     this.tweens.add({ targets: panel, scale: 1, duration: 220, ease: "Back.easeOut" });
   }
 

@@ -15,6 +15,7 @@ import {
 } from "../content/catalog";
 import { LEVELS, levelById } from "../content/levels";
 import { applyClear, commitSave, loadSave, setAutoWaves } from "../content/save";
+import { launchMarch, type DifficultyId, type LaunchedMarch, type ModeId } from "../content/variants";
 import type { Branch, Family } from "../content/types";
 import { starsFor } from "../sim/combat";
 import { mulberry32 } from "../sim/rng";
@@ -125,13 +126,28 @@ export class BattleScene extends Phaser.Scene {
   private rainSlot!: Phaser.GameObjects.Image;
   private countdownText?: Phaser.GameObjects.Text;
   private autoLabel?: Phaser.GameObjects.Text;
+  private previewCacheKey = "";
 
   constructor() {
     super("battle");
   }
 
-  init(data: { levelId?: string }): void {
+  private launchData: { levelId: string; modeId: ModeId; difficultyId: DifficultyId; heroId: string } = {
+    levelId: "dewcap",
+    modeId: "campaign",
+    difficultyId: "normal",
+    heroId: "puff",
+  };
+  private launched?: LaunchedMarch;
+
+  init(data: { levelId?: string; modeId?: ModeId; difficultyId?: DifficultyId; heroId?: string }): void {
     this.levelId = data.levelId ?? "dewcap";
+    this.launchData = {
+      levelId: this.levelId,
+      modeId: data.modeId ?? "campaign",
+      difficultyId: data.difficultyId ?? "normal",
+      heroId: data.heroId ?? "puff",
+    };
   }
 
   create(): void {
@@ -151,11 +167,15 @@ export class BattleScene extends Phaser.Scene {
     this.speed = 1;
     this.previewOpen = false;
     this.clock = 0;
-    const level = levelById(this.levelId);
+    const baseLevel = levelById(this.levelId);
     const save = loadSave();
-    this.sim = new Sim(level, bonusesFrom(save.bought), mulberry32((Date.now() ^ (level.index * 997)) >>> 0));
-    this.sim.setAutoWaves(save.autoWaves);
-    if (save.autoWaves) this.sim.armPrep();
+    const launched = launchMarch(baseLevel, this.launchData.modeId, this.launchData.difficultyId, this.launchData.heroId || save.heroId);
+    this.launched = launched;
+    const level = launched.level;
+    this.sim = new Sim(level, bonusesFrom(save.bought), mulberry32((Date.now() ^ (level.index * 997)) >>> 0), launched.enemyDefs, launched.hero, launched.hero.id);
+    const auto = launched.mode.forceManual ? false : save.autoWaves;
+    this.sim.setAutoWaves(auto);
+    if (auto) this.sim.armPrep();
     this.lastLives = this.sim.lives;
     this.drawTerrain();
     this.overlay = this.add.graphics().setDepth(1.5);
@@ -178,10 +198,11 @@ export class BattleScene extends Phaser.Scene {
       else this.togglePause();
     });
     keyboard?.addCapture(["SPACE"]);
+    const variantNote = `${launched.mode.name} · ${launched.difficulty.name}${level.hero ? ` · ${launched.hero.name}` : ""}`;
     if (this.sim.autoWaves) {
-      this.toast(level.index === 1 ? `Build now — wave 1 in ${Sim.PREP_SECONDS}s. Pause freezes the clock.` : `Auto march — wave 1 in ${Sim.PREP_SECONDS}s.`);
+      this.toast(`${variantNote} — wave 1 in ${Sim.PREP_SECONDS}s. Pause freezes the clock.`);
     } else {
-      this.toast(level.index === 1 ? "Build on the pads, then call the first wave." : level.briefing);
+      this.toast(`${variantNote} — build, then call the first wave.`);
     }
   }
 
@@ -274,7 +295,10 @@ export class BattleScene extends Phaser.Scene {
     this.goldText = this.add.text(200, 13, "", { fontFamily: DISPLAY_FONT, fontSize: "22px", color: GOLD }).setDepth(15);
     art(this, 340, 26, "ic-skull", "dot").setDisplaySize(34, 34).setDepth(15);
     this.waveText = this.add.text(364, 13, "", { fontFamily: DISPLAY_FONT, fontSize: "22px", color: CREAM }).setDepth(15);
-    this.add.text(640, 26, this.sim.level.name, { fontFamily: DISPLAY_FONT, fontSize: "20px", color: "#d9c08a" }).setOrigin(0.5).setDepth(15);
+    const titleSuffix = this.launched && (this.launched.mode.id !== "campaign" || this.launched.difficulty.id !== "normal")
+      ? ` · ${this.launched.mode.name} ${this.launched.difficulty.name}`
+      : "";
+    this.add.text(640, 26, `${this.sim.level.name}${titleSuffix}`, { fontFamily: DISPLAY_FONT, fontSize: "20px", color: "#d9c08a" }).setOrigin(0.5).setDepth(15);
 
     this.infoTitle = this.add.text(24, 664, "", { fontFamily: DISPLAY_FONT, fontSize: "20px", color: GOLD }).setDepth(15);
     this.infoBody = this.add.text(24, 692, "", { fontFamily: UI_FONT, fontSize: "15px", color: CREAM }).setDepth(15);
@@ -515,7 +539,11 @@ export class BattleScene extends Phaser.Scene {
       const hop = moving ? Math.abs(Math.sin(t * 11 + body.seed)) * 4 : 0;
       img.setOrigin(0.5, 0.92);
       img.setPosition(hero.x, hero.y + 6 - hop);
-      img.setScale(body.facing, 1);
+      // One painted warden, three reads: tint + bulk per chosen hero.
+      const heroTint = this.sim.heroId === "bramble" ? 0xb8e6a0 : this.sim.heroId === "sable" ? 0xaac8ff : 0xffffff;
+      const heroScale = this.sim.heroId === "bramble" ? 1.12 : this.sim.heroId === "sable" ? 0.92 : 1;
+      img.setTint(heroTint);
+      img.setScale(body.facing * heroScale, heroScale);
       img.setDepth(this.depthAt(hero.y) + 0.05);
       img.setVisible(hero.alive);
     }
@@ -627,24 +655,31 @@ export class BattleScene extends Phaser.Scene {
         g.strokeEllipse(slot.x, slot.y, 92, 62);
       }
     }
+    // HP bars: derive the sprite top from y/height/origin instead of getBounds()
+    // (which forces a full world-transform pass per body, per frame).
+    const spriteTop = (id: string, fallbackY: number): number => {
+      const img = this.bodies.get(id)?.img;
+      return img ? img.y - img.displayHeight * img.originY : fallbackY;
+    };
     for (const enemy of this.sim.enemies) {
       if (enemy.hp >= enemy.maxHp) continue;
-      const top = this.bodies.get(enemy.id)?.img.getBounds().top ?? enemy.y - 30;
-      const y = top - 7;
+      const y = spriteTop(enemy.id, enemy.y - 30) - 7;
       const w = enemy.boss ? 44 : 30;
       g.fillStyle(0x2a1a10, 0.85);
       g.fillRect(enemy.x - w / 2 - 1, y - 1, w + 2, 6);
       g.fillStyle(enemy.boss ? 0xc0392b : 0x9be07a, 1);
       g.fillRect(enemy.x - w / 2, y, w * Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1), 4);
     }
-    for (const actor of [...this.sim.actors, ...(this.sim.hero ? [this.sim.hero] : [])]) {
-      if (!actor.alive || actor.hp >= actor.maxHp) continue;
-      const top = this.bodies.get(actor.id)?.img.getBounds().top ?? actor.y - 26;
+    const actorBar = (actor: { id: string; x: number; y: number; alive: boolean; hp: number; maxHp: number }) => {
+      if (!actor.alive || actor.hp >= actor.maxHp) return;
+      const top = spriteTop(actor.id, actor.y - 26);
       g.fillStyle(0x2a1a10, 0.8);
       g.fillRect(actor.x - 13, top - 7, 26, 5);
       g.fillStyle(0x6aa6e0, 1);
       g.fillRect(actor.x - 12, top - 6, 24 * Phaser.Math.Clamp(actor.hp / actor.maxHp, 0, 1), 3);
-    }
+    };
+    for (const actor of this.sim.actors) actorBar(actor);
+    if (this.sim.hero) actorBar(this.sim.hero);
     this.overlay.setDepth(1.5);
 
     this.shots = this.shots.filter((shot) => {
@@ -756,6 +791,10 @@ export class BattleScene extends Phaser.Scene {
     this.writeInfo();
     this.refreshSelection();
     if (this.previewOpen && this.previewBody) {
+      // Only rebuild the preview text when something it shows actually changed.
+      const cacheKey = `${sim.waveStarted}:${sim.enemies.length}:${Math.ceil(sim.nextWaveIn)}:${sim.autoWaves}:${sim.gold}`;
+      if (cacheKey === this.previewCacheKey) return;
+      this.previewCacheKey = cacheKey;
       const groups = sim.upcomingGroups();
       if (!groups) this.previewBody.setText(sim.waveStarted >= sim.level.waves.length ? "No further waves." : "The wave is already on the road.");
       else {
@@ -806,7 +845,7 @@ export class BattleScene extends Phaser.Scene {
     }
     if (sel.kind === "hero" && this.sim.hero) {
       const hero = this.sim.hero;
-      this.infoTitle.setText(`Warden Puff  ·  level ${hero.level}`);
+      this.infoTitle.setText(`${this.sim.heroDef.name}  ·  level ${hero.level}`);
       this.infoBody.setText(`${Math.ceil(hero.hp)} / ${hero.maxHp}  ·  burst ${hero.abilityCd > 0 ? Math.ceil(hero.abilityCd) + "s" : "ready"}  ·  H or the slot`);
       return;
     }
@@ -1036,10 +1075,15 @@ export class BattleScene extends Phaser.Scene {
     return panel;
   }
 
+  private setPaused(value: boolean): void {
+    this.paused = value;
+    if (this.sim) this.sim.paused = value;
+  }
+
   private closeModal(): void {
     this.modal?.destroy(true);
     this.modal = undefined;
-    this.paused = false;
+    this.setPaused(false);
   }
 
   private togglePause(): void {
@@ -1048,11 +1092,11 @@ export class BattleScene extends Phaser.Scene {
       this.closeModal();
       return;
     }
-    this.paused = true;
+    this.setPaused(true);
     const panel = this.openModal(420, 320);
     const title = this.add.text(0, -110, "Paused", { fontFamily: DISPLAY_FONT, fontSize: "36px", color: INK }).setOrigin(0.5);
     const resume = woodButton(this, 0, -30, 220, 48, "Resume", () => this.togglePause(), 31);
-    const retry = woodButton(this, 0, 34, 220, 48, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31);
+    const retry = woodButton(this, 0, 34, 220, 48, "Retry", () => this.scene.restart({ ...this.launchData }), 31);
     const map = woodButton(this, 0, 98, 220, 48, "Map", () => this.scene.start("map"), 31);
     panel.add([title, resume, retry, map]);
     this.modal = panel;
@@ -1067,7 +1111,7 @@ export class BattleScene extends Phaser.Scene {
       this.closeModal();
       return;
     }
-    this.paused = true;
+    this.setPaused(true);
     const panel = this.openModal(440, 240);
     const title = this.add.text(0, -70, "Leave the march?", { fontFamily: DISPLAY_FONT, fontSize: "28px", color: INK }).setOrigin(0.5);
     const note = this.add.text(0, -28, "Progress on this road is lost.", { fontFamily: UI_FONT, fontSize: "16px", color: INK_SOFT }).setOrigin(0.5);
@@ -1116,10 +1160,10 @@ export class BattleScene extends Phaser.Scene {
     panel.add(detail);
     const nextLevel = LEVELS.find((level) => level.index === this.sim.level.index + 1);
     const showNext = victory && !!nextLevel;
-    panel.add(woodButton(this, showNext ? -150 : -90, 60, 150, 46, "Retry", () => this.scene.restart({ levelId: this.levelId }), 31));
+    panel.add(woodButton(this, showNext ? -150 : -90, 60, 150, 46, "Retry", () => this.scene.restart({ ...this.launchData }), 31));
     panel.add(woodButton(this, showNext ? 0 : 90, 60, 150, 46, "Map", () => this.scene.start("map"), 31));
     if (showNext && nextLevel) {
-      panel.add(woodButton(this, 150, 60, 160, 46, "Next march", () => this.scene.start("battle", { levelId: nextLevel.id }), 31));
+      panel.add(woodButton(this, 150, 60, 160, 46, "Next march", () => this.scene.start("battle", { ...this.launchData, levelId: nextLevel.id }), 31));
     }
     if (victory && this.sim.level.id === "dewcap") {
       panel.add(this.add.text(0, 120, "Warden Puff will march with you.", { fontFamily: UI_FONT, fontSize: "16px", color: INK_SOFT }).setOrigin(0.5));

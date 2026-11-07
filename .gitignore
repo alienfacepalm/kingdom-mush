@@ -4,3 +4,6 @@ dist
 *.log
 .vite
 art/checks
+
+docs/tla/states
+docs/tla/*_TTrace_*

@@ -189,13 +189,17 @@ describe("campaign rules", () => {
     expect(sim.waveStarted).toBe(2);
   });
 
-  it("disarms prep when switching off Auto and does not re-arm for free gold", () => {
+  it("re-arms prep when Auto is switched back on before wave 1", () => {
     const sim = new Sim(LEVELS[0], NEUTRAL_BONUSES, mulberry32(7));
+    sim.armPrep();
     sim.setAutoWaves(false);
-    for (let i = 0; i < 60; i++) sim.step(1 / 30);
-    sim.setAutoWaves(true);
     expect(sim.countingDown).toBe(false);
-    expect(sim.callWave()).toBe(0);
+    for (let i = 0; i < 60; i++) sim.step(1 / 30);
+    expect(sim.waveStarted).toBe(0);
+    sim.setAutoWaves(true);
+    expect(sim.countingDown).toBe(true);
+    for (let i = 0; i < Sim.PREP_SECONDS * 30 + 5; i++) sim.step(1 / 30);
+    expect(sim.waveStarted).toBe(1);
     expect(sim.gold).toBe(LEVELS[0].startGold);
   });
 

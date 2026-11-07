@@ -125,4 +125,6 @@ export interface SaveData {
   bought: string[];
   /** When true (default), each march starts a prep countdown and waves call themselves. */
   autoWaves: boolean;
+  /** Selected warden id (see content/variants HEROES). */
+  heroId: string;
 }
