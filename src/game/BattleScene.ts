@@ -127,6 +127,12 @@ export class BattleScene extends Phaser.Scene {
   private countdownText?: Phaser.GameObjects.Text;
   private autoLabel?: Phaser.GameObjects.Text;
   private previewCacheKey = "";
+  private sparks?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private dust?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private ghostAt = new Map<string, number>();
+  private bossIds = new Set<string>();
+  private ghostsActive = 0;
+  private zoomPunching = false;
 
   constructor() {
     super("battle");
@@ -180,6 +186,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawTerrain();
     this.overlay = this.add.graphics().setDepth(1.5);
     this.buildHud();
+    this.buildFx();
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (this.modal) return;
@@ -218,7 +225,14 @@ export class BattleScene extends Phaser.Scene {
     this.syncHud();
     if (!this.ended && this.sim.phase === "victory") this.showEnd(true);
     if (!this.ended && this.sim.phase === "defeat") this.showEnd(false);
-    if (this.livesText && this.sim.lives < this.lastLives) sfx.leak();
+    if (this.livesText && this.sim.lives < this.lastLives) {
+      sfx.leak();
+      this.triggerJuiceImpact(1);
+      this.cameras.main.flash(110, 170, 26, 26);
+      const points = this.sim.level.paths[0]?.points;
+      const gate = points?.[points.length - 1];
+      if (gate) this.sparks?.explode(22, gate.x, gate.y - 10);
+    }
     this.lastLives = this.sim.lives;
   }
 
@@ -490,11 +504,20 @@ export class BattleScene extends Phaser.Scene {
       const body = this.body(enemy.id, "enemy", FOE_FRAME[enemy.defId] ?? "sprout", `foe-${enemy.defId}`);
       const img = body.img;
       const phase = t * (enemy.flying ? 14 : 9) + body.seed;
-      if (enemy.x < body.x - 0.2) body.facing = -1;
-      else if (enemy.x > body.x + 0.2) body.facing = 1;
-      const moving = Math.abs(enemy.x - body.x) + Math.abs(enemy.y - body.y) > 0.05;
+      const dx = enemy.x - body.x;
+      const dy = enemy.y - body.y;
+      const moved = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      const wasFacing = body.facing;
+      // Angle-quantized facing: flip on horizontal intent, hold facing on steep verticals.
+      if (Math.abs(Math.cos(angle)) > 0.45) {
+        if (dx < -0.2) body.facing = -1;
+        else if (dx > 0.2) body.facing = 1;
+      }
+      const moving = moved > 0.05;
       body.x = enemy.x;
       body.y = enemy.y;
+      if (enemy.boss) this.bossIds.add(enemy.id);
       const hover = enemy.flying ? -28 + Math.sin(phase) * 4 : 0;
       const hop = !enemy.flying && moving ? Math.abs(Math.sin(phase)) * 3 : 0;
       img.setOrigin(0.5, enemy.flying ? 0.6 : 0.92);
@@ -504,15 +527,24 @@ export class BattleScene extends Phaser.Scene {
       img.setDepth(this.depthAt(enemy.y) + (enemy.flying ? 0.6 : 0));
       img.setVisible(true);
       img.setTint(enemy.poisonUntil > this.sim.time ? 0xa8ff8a : 0xffffff);
+      if (body.facing !== wasFacing && moving) this.dust?.explode(3, enemy.x, enemy.y + 5);
+      this.maybeGhost(enemy.id, body, moved, 1.35);
     }
     for (const actor of this.sim.actors) {
       seen.add(actor.id);
       const [frame, fallback] = this.unitFrame(actor.kind, actor.ownerId);
       const body = this.body(actor.id, "actor", frame, fallback);
       const img = body.img;
-      if (actor.x > body.x + 0.2) body.facing = -1;
-      else if (actor.x < body.x - 0.2) body.facing = 1;
-      const moving = Math.abs(actor.x - body.x) + Math.abs(actor.y - body.y) > 0.05;
+      const adx = actor.x - body.x;
+      const ady = actor.y - body.y;
+      const aMoved = Math.hypot(adx, ady);
+      const aAngle = Math.atan2(ady, adx);
+      const aWasFacing = body.facing;
+      if (Math.abs(Math.cos(aAngle)) > 0.45) {
+        if (adx > 0.2) body.facing = -1;
+        else if (adx < -0.2) body.facing = 1;
+      }
+      const moving = aMoved > 0.05;
       body.x = actor.x;
       body.y = actor.y;
       const phase = t * 10 + body.seed;
@@ -525,15 +557,24 @@ export class BattleScene extends Phaser.Scene {
       img.setDepth(this.depthAt(actor.y));
       img.setVisible(actor.alive);
       img.setAlpha(actor.kind === "reinforcement" ? 0.96 : 1);
+      if (body.facing !== aWasFacing && moving) this.dust?.explode(3, actor.x, actor.y + 5);
+      this.maybeGhost(actor.id, body, aMoved, 1.6);
     }
     if (this.sim.hero) {
       const hero = this.sim.hero;
       seen.add(hero.id);
       const body = this.body(hero.id, "hero", "hero", "unit-hero");
       const img = body.img;
-      if (hero.x > body.x + 0.2) body.facing = -1;
-      else if (hero.x < body.x - 0.2) body.facing = 1;
-      const moving = Math.abs(hero.x - body.x) + Math.abs(hero.y - body.y) > 0.05;
+      const hdx = hero.x - body.x;
+      const hdy = hero.y - body.y;
+      const hMoved = Math.hypot(hdx, hdy);
+      const hAngle = Math.atan2(hdy, hdx);
+      const hWasFacing = body.facing;
+      if (Math.abs(Math.cos(hAngle)) > 0.45) {
+        if (hdx > 0.2) body.facing = -1;
+        else if (hdx < -0.2) body.facing = 1;
+      }
+      const moving = hMoved > 0.05;
       body.x = hero.x;
       body.y = hero.y;
       const hop = moving ? Math.abs(Math.sin(t * 11 + body.seed)) * 4 : 0;
@@ -546,6 +587,8 @@ export class BattleScene extends Phaser.Scene {
       img.setScale(body.facing * heroScale, heroScale);
       img.setDepth(this.depthAt(hero.y) + 0.05);
       img.setVisible(hero.alive);
+      if (hero.alive && body.facing !== hWasFacing && moving) this.dust?.explode(4, hero.x, hero.y + 5);
+      if (hero.alive) this.maybeGhost(hero.id, body, hMoved, 1.1);
     }
     for (const tower of this.sim.towers) {
       seen.add(tower.id);
@@ -561,7 +604,14 @@ export class BattleScene extends Phaser.Scene {
     }
     for (const [id, body] of this.bodies) {
       if (seen.has(id)) continue;
-      if (body.kind === "enemy") this.puff(body.x, body.y - 10, "puff", 0.6);
+      if (body.kind === "enemy") {
+        this.puff(body.x, body.y - 10, "puff", 0.6);
+        const wasBoss = this.bossIds.has(id);
+        this.sparks?.explode(wasBoss ? 42 : 7, body.x, body.y - 8);
+        if (wasBoss) this.triggerJuiceImpact(1);
+      }
+      this.ghostAt.delete(id);
+      this.bossIds.delete(id);
       body.img.destroy();
       this.bodies.delete(id);
     }
@@ -599,6 +649,83 @@ export class BattleScene extends Phaser.Scene {
     if (tower?.branch === "a") return ["paladin", "unit-soldier"];
     if (tower?.branch === "b" && tower.family === "barracks") return ["axe", "unit-soldier"];
     return [`soldier${Math.min(3, tower?.tier ?? 1)}`, "unit-soldier"];
+  }
+
+  // ------------------------------------------------------------- chaos fx
+
+  private buildFx(): void {
+    if (!this.textures.exists("fx-dot")) {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(8, 8, 7);
+      g.generateTexture("fx-dot", 16, 16);
+      g.destroy();
+    }
+    this.sparks = this.add.particles(0, 0, "fx-dot", {
+      speed: { min: 40, max: 260 },
+      lifespan: { min: 180, max: 480 },
+      scale: { start: 0.55, end: 0 },
+      tint: [0xffe9a0, 0xffb056, 0xfff6d8, 0x9be8ff],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    }).setDepth(9);
+    this.dust = this.add.particles(0, 0, "fx-dot", {
+      speed: { min: 10, max: 55 },
+      lifespan: { min: 280, max: 620 },
+      scale: { start: 0.45, end: 1.1 },
+      alpha: { start: 0.45, end: 0 },
+      tint: [0xd8c49a, 0xb59a6a, 0x8a6f4d],
+      gravityY: -16,
+      emitting: false,
+    }).setDepth(8.5);
+    this.ghostAt.clear();
+    this.bossIds.clear();
+    this.ghostsActive = 0;
+    this.zoomPunching = false;
+  }
+
+  /** Violent camera juice: shake scaled by intensity, plus a zoom punch for big hits. */
+  private triggerJuiceImpact(intensity: number): void {
+    const cam = this.cameras.main;
+    cam.shake(150, Math.min(0.02, 0.02 * intensity));
+    if (intensity < 0.5 || this.zoomPunching) return;
+    this.zoomPunching = true;
+    cam.zoomTo(1.08, 60, "Power2", true);
+    this.time.delayedCall(75, () => {
+      cam.zoomTo(1, 200, "Power2", true, (_cam, progress) => {
+        if (progress === 1) this.zoomPunching = false;
+      });
+    });
+  }
+
+  /** Decaying neon ghost clone of a fast mover (ADD blend, 250ms fade + swell). */
+  private ghostTrail(body: Body): void {
+    if (this.ghostsActive >= 36) return;
+    const src = body.img;
+    this.ghostsActive += 1;
+    const ghost = this.add.image(src.x, src.y, src.texture.key, src.frame.name)
+      .setOrigin(src.originX, src.originY)
+      .setScale(src.scaleX, src.scaleY)
+      .setDepth(src.depth - 0.02)
+      .setTint(0x00ffff)
+      .setAlpha(0.5)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      scaleX: src.scaleX * 1.18,
+      scaleY: src.scaleY * 1.18,
+      duration: 250,
+      ease: "Cubic.easeOut",
+      onComplete: () => { ghost.destroy(); this.ghostsActive -= 1; },
+    });
+  }
+
+  private maybeGhost(id: string, body: Body, moved: number, minMove: number): void {
+    if (moved < minMove) return;
+    if (this.clock - (this.ghostAt.get(id) ?? -9) < 0.08) return;
+    this.ghostAt.set(id, this.clock);
+    this.ghostTrail(body);
   }
 
   private puff(x: number, y: number, frame: string, scale: number): void {
@@ -1019,6 +1146,7 @@ export class BattleScene extends Phaser.Scene {
     for (const notice of this.sim.drain()) {
       if (notice.type === "fire") {
         this.launch(notice.x1, notice.y1 - 30, notice.x2, notice.y2 - 10, notice.kind);
+        this.sparks?.explode(2, notice.x2, notice.y2 - 8);
         sfx.shot(notice.kind);
       } else if (notice.type === "float" && this.floaters.length < 24) {
         const text = this.add.text(notice.x, notice.y - 20, notice.text, {
@@ -1052,6 +1180,8 @@ export class BattleScene extends Phaser.Scene {
         this.toast(notice.power === "rain" ? "Spore Rain unlocked." : "Reinforcements unlocked.");
       } else if (notice.type === "boom") {
         this.burst(notice.x, notice.y, notice.r);
+        this.sparks?.explode(notice.r > 60 ? 30 : 12, notice.x, notice.y - 6);
+        if (notice.r > 60) this.triggerJuiceImpact(0.7);
       }
     }
   }
@@ -1128,6 +1258,17 @@ export class BattleScene extends Phaser.Scene {
 
   private showEnd(victory: boolean): void {
     this.ended = true;
+    if (victory) {
+      this.triggerJuiceImpact(0.8);
+      for (let i = 0; i < 5; i++) {
+        this.time.delayedCall(i * 130, () => {
+          this.sparks?.explode(26, 240 + Math.random() * 800, 150 + Math.random() * 320);
+        });
+      }
+    } else {
+      this.triggerJuiceImpact(1.2);
+      this.cameras.main.flash(220, 120, 20, 20);
+    }
     const stars = starsFor(this.sim.lives, victory);
     if (victory && !this.saved) {
       this.saved = true;
